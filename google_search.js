@@ -95,7 +95,8 @@ var gg_params = {
 	"show_domain"	: false,
 	"show_keyword"	: false,
 	"nofilter"				: false,
-	"safe"					: 'images',	/* *EMPTY*=moderate=images / strict=on=active / off */
+	"safe"					: 'moderate',	/* *EMPTY*=moderate=images / strict=on=active / off */
+	"simulate"		: false,
 };
 
 
@@ -144,6 +145,11 @@ if (curl_config.proxy_file) {
 // Process google query
 var gg_url = getGoogleWebSearchUrl(gg_params.tld, gg_params.hl, gg_params.keyword, gg_params.start, gg_params.num, gg_params.nofilter, gg_params.safe);
 
+if (gg_params.simulate) {
+	console.log(gg_url);
+	process.exit(0);
+}
+
 // Parse google result content
 getPageContent(gg_url, curl_config, function (content) {
 	parsePageContent(content, result_types, selected_result_types, parseResultItemGoogle);
@@ -158,29 +164,36 @@ return;
 function usage(rc) {
 	console.log('Usage: $ node ' + path.basename(process.argv[1]) + ' [<options>] <keyword>');
 	console.log('  Placement options :');
-	console.log('	-all			: display all (search+count+ads+stuff)			default: false');
-	console.log('	-search			: display search results 				default: displayed if no other displayed');
-	console.log('	-ads			: display ads results 					default: not displayed');
-	console.log('	-stuff			: display other stuff results 				default: not displayed');
-	console.log('	-count			: display results count					default: not displayed		equivalent to -search.count');
+	console.log('	-all			: display all (search+count+ads+stuff)			');
+	console.log('	-search			: display search results (natural + onebox + count)');
+	console.log('	-search.natural		: display search results 				default display mode');
+	console.log('	-search.count | -count 	: display results count');
+	console.log('	-ads			: display ads results 					');
+	console.log('	-ads.top		: display ads results (only top results)');
+	console.log('	-ads.right		: display ads results (only right results)');
+	console.log('	-stuff			: display other stuff results');
+	console.log('	-stuff.related_bottom	: display suggestions');
 	console.log('  Columns options :');
 	console.log('	-title			: display links title 					default: not displayed');
 	console.log('	-kw			: display request keyword 				default: not displayed');
 	console.log('	-domain			: display links domain 					default: not displayed');
 	console.log('  Google options :');
-	console.log('	-nofilter		: disabled duplicate filter search 			default: false');
+	console.log('	-nofilter		: disable duplicate filter search 			default: filter activated');
 	console.log('	-num <int>		: nb of results 					default: 10');
 	console.log('	-start <int>		: results start offset 					default: 0');
 	console.log('	-tld <string>		: google country extension 				default: fr');
-	console.log('	-lang <string>		: google lang parameter (aka "hl" paramter) 		default: fr ');
+	console.log('	-hl | -lang <string>	: google language parameter 		 		default: fr');
 	console.log('	-safe <string>		: change safe level (off,moderate,strict)		default: moderate');
 	console.log('  Connection options :');
-	console.log('	-cache			: use local fs cache 					default: false');
+	console.log('	-cache			: use local fs cache 					default: no cache');
 	console.log('	-agent <string>		: change user agent 					default: see in code...');
-	console.log('	-proxy <string>		: use proxy (format: "hostname:port") 			default: none');
-	console.log('	-proxyfile <string>	: use proxy file (file format: "hostname:port")		default: none');
+	console.log('	-proxy <string>		: use proxy 		(format: "hostname:port" or "user:password@hostname:port")');
+	console.log('	-proxyfile <string>	: use proxy file 	(file format: one proxy per line)');
 	console.log('  Misc options :');
-	console.log('	-quiet			: disabled notice messages				default: false');
+	console.log('	-q | -quiet		: disable notice messages				default: false');
+	console.log('	-types			: display placements types (and quit)');
+	console.log('	-fake			: display google url (and quit)');
+	console.log('	-h | -help		: display this message				');
 	process.exit(rc);
 }
 
@@ -197,6 +210,14 @@ function parseArguments(arguments) {
 		var arg1 = (l>i+1) ? arguments[i+1] : null;
 
 		switch (arg0_short) {
+			case '-fake':
+			case '-simulate':
+				gg_params.simulate = true;
+				break;
+			case '-h':
+			case '-help':
+				usage(0);
+				break;
 			case '-q':
 			case '-quiet':
 				curl_config.verbose = false;
@@ -265,6 +286,7 @@ function parseArguments(arguments) {
 				i++;
 				break;
 			case '-lang':
+			case '-hl':
 				gg_params.hl = arg1;
 				i++;
 				break;
@@ -516,12 +538,32 @@ function parseResultItemGoogle(n, item, result_type_name, result_type_placement_
 			var sitelink_url = "[SITELINK] " + sitelink_url;
 
 			var item_buffer = [];
+			
+			// column "placement"
 			item_buffer.push(result_type_name + '.' + result_type_placement_name);
+			
+
+			// column "keyword"
+			if (gg_params.show_keyword) {
+				item_buffer.push(gg_params.keyword);
+			}
+			
+			// column "position"
 			item_buffer.push(position + '-' + (n+1));
+			
+			// column "link"
 			item_buffer.push(sitelink_url);
+			
+			// column "domain"
+			if (gg_params.show_domain) {
+				item_buffer.push(domain);
+			}
+			
+			// column "title"
 			if (gg_params.show_title) {
 				item_buffer.push(sitelink_text);
 			}
+			
 			display_tmp_buffer.push(item_buffer.join("\t"));
 		});
 	}
