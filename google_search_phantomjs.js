@@ -439,7 +439,6 @@ function parsePage(page, result_types, selected_result_types, callback){
 	var result = false;	//page.injectJs("https://ajax.googleapis.com/ajax/libs/jquery/1.6.2/jquery.min.js");
 
 	if (result){
-		console.log("a");
 		jQueryInjected();
 	}else{
 		page.includeJs("https://ajax.googleapis.com/ajax/libs/jquery/1.6.2/jquery.min.js", jQueryInjected);
@@ -449,6 +448,26 @@ function parsePage(page, result_types, selected_result_types, callback){
 	function jQueryInjected(){
 		console.debug('DEBUG jQuery injected', page);
 
+		/*
+		 var window = page.evaluate(function () {
+			return JSON.stringify(window);
+		});
+		callback(window);
+		*/
+
+		if ( curl_config.use_cache) {
+			// Write local cache
+			var html = page.content;
+			FS.write(cache_file, '<!-- ORIGIN_URL: ' + page_url + ' -->' + html, function (err) {
+				if (curl_config.verbose) {
+					console.error('Writing cache: file://' + cache_file);
+				}
+				if (err) throw err;
+			});
+		}
+
+		console.debug('callbackcallback');
+		return callback(page, result_types, selected_result_types, callback);
 	}
 
 }
