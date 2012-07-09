@@ -620,7 +620,8 @@ function parseResultItemInfosGoogle(result_type_name, result_type_placement_name
 		if (result_type_placement_name == 'count') {
 			// result count
 			var item_tmp = item_text;
-			item_tmp = item_text.split('(')[0];
+			item_tmp = item_tmp.split('(')[0];
+			item_tmp = item_tmp.split('（')[0];		//  special char => （ ==> %EF%BC%88 (used for example by google.co.jp)
 			item_tmp = item_tmp.replace(/[^0-9]/g, "");
 			var item_int = parseInt(item_tmp);
 			return [item_int, item_text];
