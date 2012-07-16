@@ -2,12 +2,13 @@ node_google_search
 ==================
 
 Dependencies :
+<pre>
  - jsdom and/or jquery
+</pre>
 
 
 Usage :
-
-
+<pre>
 $ node google_search.js
 NodeJS Google search - version 0.1
 
@@ -48,5 +49,5 @@ Usage: $ node google_search.js [<options>] <keyword>
 	-types			: display placements types (and quit)
 	-fake			: display google url (and quit)
 	-h | -help		: display this message				
-
+</pre>
 
