@@ -120,8 +120,8 @@ if (curl_config.proxy_file) {
 	if (curl_config.verbose) {
 		console.error('Using proxy file : ' + curl_config.proxy_file);
 	}
-	
-	if (path.existsSync(curl_config.proxy_file)) {
+
+	if (FsExistsSync(curl_config.proxy_file)) {
 		//console.error('Reading file://' + curl_config.proxy_file);
 		var proxy_contents = fs.readFileSync(curl_config.proxy_file).toString();
 		var lines = proxy_contents.split("\n");
@@ -140,7 +140,7 @@ if (curl_config.proxy_file) {
 		console.error('Invalid proxy file');
 		process.exit(0);
 	}
-	
+
 }
 
 // Process google query
@@ -323,7 +323,7 @@ function getCurlOptionsFromUrl(curl_url, curl_config) {
 	var proxy_host_port = parts[parts.length-1];
 	var proxy			= proxy_host_port.split(':');
 	var proxy_auth		= (parts.length > 1) ? ('Basic ' + new Buffer(parts[0]).toString('base64')) : '';
-	
+
 	var http_auth		= '';	// TODO if needed...
 
 	if (proxy_host_port !== "") {
@@ -356,7 +356,7 @@ function getCurlOptionsFromUrl(curl_url, curl_config) {
 		  "Authorization"		: http_auth,
 	    },
 	};
-	
+
 	return options;
 }
 
@@ -367,14 +367,14 @@ function getPageContent(page_url, curl_config, callback) {
 	//var page_url 		= 'http://' + options.host + options.path;
 	var url_md5 	= crypto.createHash('md5').update(page_url).digest("hex");
 	var cache_file 	= '/tmp/serp_gg_' + url_md5 + '.html';
-	
+
 	if (curl_config.verbose) {
 		console.error('Remote URL: ' + page_url);
 	}
 
 	if (curl_config.use_cache) {
 		// Read content from local cache
-		if (path.existsSync(cache_file)) {
+		if (FsExistsSync(cache_file)) {
 			if (curl_config.verbose) {
 				console.error('Reading cache: file://' + cache_file);
 			}
@@ -408,19 +408,19 @@ function getPageContent(page_url, curl_config, callback) {
 
 
 function parsePageContent(html, result_types, selected_result_types, callback) {
-	
+
 	var window = jsdom.jsdom(html).createWindow();
 	jsdom.jQueryify(window, 'http://code.jquery.com/jquery-1.4.2.min.js', function() {
 		var $ = window.$;
-		
+
 		var $html 			= $(html);
 		var display_buffer 	= [];
-		
+
 		// FOR EACH RESULT_TYPE (SEARCH, ADS, ...)
 		var result_type_name;
 		for (var i=0, l=selected_result_types.length; i<l; i++) {
 			var result_type_name = selected_result_types[i];
-			
+
 			if (result_type_name.indexOf('.') === -1) {
 				// Take all the result_type
 				var result_type_placements = result_types[result_type_name];
@@ -431,22 +431,22 @@ function parsePageContent(html, result_types, selected_result_types, callback) {
 				var result_type_placement_name = parts[1];
 				var result_type_placements = {};
 				result_type_placements[result_type_placement_name] = result_types[result_type_name][result_type_placement_name];
-				
+
 			}
-	
+
 			// FOR EACH PLACEMENT OF THE RESULT_TYPE
 			for (result_type_placement_name in result_type_placements) {
 				var result_type_placement = result_type_placements[result_type_placement_name];
 				var jpaths = result_type_placement['jpaths'];
 				var jpath  = jpaths.join(',');
-	
+
 				var pattern_results = $html.find(jpath);
 				var nb_results 		= pattern_results.length;
 				if (nb_results == 0) {
 					continue;
 				}
 				//console.log(result_type_name + ' -> ' + result_type_placement_name + ' -> ' + nb_results);
-	
+
 				pattern_results.each(function (n, item) {
 					var tmp_buffer = callback(n, item, result_type_name, result_type_placement_name, $);
 					if (tmp_buffer) {
@@ -456,13 +456,13 @@ function parsePageContent(html, result_types, selected_result_types, callback) {
 					}
 				});
 			}
-	
+
 		}
-	
+
 		displayResults(display_buffer);
-		
+		process.exit(0);
 	});
-	
+
 
 }
 
@@ -499,10 +499,10 @@ function parseResultItemGoogle(n, item, result_type_name, result_type_placement_
 
 	var position = n+1;
 	var item_buffer = [];
-	
+
 	// column "placement"
 	item_buffer.push(result_type_name + '.' + result_type_placement_name);
-	
+
 	// column "keyword"
 	if (gg_params.show_keyword) {
 		item_buffer.push(gg_params.keyword);
@@ -518,10 +518,10 @@ function parseResultItemGoogle(n, item, result_type_name, result_type_placement_
 		}
 	}
 	*/
-	
+
 	// column "link"
 	item_buffer.push(item_infos[0]);
-	
+
 	// column "domain"
 	if (gg_params.show_domain) {
 		var link	= item_infos[0] + '';
@@ -529,12 +529,12 @@ function parseResultItemGoogle(n, item, result_type_name, result_type_placement_
 		var domain 	= (parts[2] === undefined) ? '' : parts[2];
 		item_buffer.push(domain);
 	}
-	
+
 	// column "title"
 	if (gg_params.show_title) {
 		item_buffer.push(item_infos[1]);
 	}
-	
+
 	display_tmp_buffer.push(item_buffer.join("\t"));
 
 
@@ -549,32 +549,32 @@ function parseResultItemGoogle(n, item, result_type_name, result_type_placement_
 			var sitelink_url = "[SITELINK] " + sitelink_url;
 
 			var item_buffer = [];
-			
+
 			// column "placement"
 			item_buffer.push(result_type_name + '.' + result_type_placement_name);
-			
+
 
 			// column "keyword"
 			if (gg_params.show_keyword) {
 				item_buffer.push(gg_params.keyword);
 			}
-			
+
 			// column "position"
 			item_buffer.push(position + '-' + (n+1));
-			
+
 			// column "link"
 			item_buffer.push(sitelink_url);
-			
+
 			// column "domain"
 			if (gg_params.show_domain) {
 				item_buffer.push(domain);
 			}
-			
+
 			// column "title"
 			if (gg_params.show_title) {
 				item_buffer.push(sitelink_text);
 			}
-			
+
 			display_tmp_buffer.push(item_buffer.join("\t"));
 		});
 	}
@@ -675,4 +675,9 @@ function parseResultItemInfosGoogle(result_type_name, result_type_placement_name
 
 function displayResults(display_buffer) {
 	console.log(display_buffer.join("\n"));
+}
+
+function FsExistsSync() {
+	var fn = (fs.existsSync !== undefined) ? fs.existsSync : path.existsSync;
+	return fn.apply(arguments);
 }
