@@ -21,8 +21,8 @@ var result_types = {
 		'onebox' : {
 			'jpaths' : [
 				'div#search ol#rso li>div>div.obcontainer>div>h3.r>a',		/* onebox ex: "manchester united" */
-				'div#search ol#rso li>div>div.ibk>h3.r>a',					/* onebox maps. ex: 12 rue des plantes paris */
-				'div#search ol#rso li>div>div.obcontainer>div>h3',		/* onebox billets avion. ex: billet avion agadir */
+				'div#search ol#rso li>div>div.ibk>h3.r>a',							/* onebox maps. ex: 12 rue des plantes paris */
+				'div#search ol#rso li>div>div.obcontainer>div>h3',				/* onebox billets avion. ex: billet avion agadir */
 			]
 		},
 		'natural' : {
@@ -120,7 +120,7 @@ if (curl_config.proxy_file) {
 		console.error('Using proxy file : ' + curl_config.proxy_file);
 	}
 
-	if (path.existsSync(curl_config.proxy_file)) {
+	if (FsExistsSync(curl_config.proxy_file)) {
 		//console.error('Reading file://' + curl_config.proxy_file);
 		var proxy_contents = fs.readFileSync(curl_config.proxy_file).toString();
 		var lines = proxy_contents.split("\n");
@@ -387,7 +387,7 @@ function getPageContent(page_url, curl_config, callback) {
 
 	if (curl_config.use_cache) {
 		// Read content from local cache
-		if (path.existsSync(cache_file)) {
+		if (FsExistsSync(cache_file)) {
 			if (curl_config.verbose) {
 				console.error('Reading cache: file://' + cache_file);
 			}
@@ -419,54 +419,61 @@ function getPageContent(page_url, curl_config, callback) {
 }
 
 
+
 function parsePageContent(html, result_types, selected_result_types, callback) {
-	var $html 			= $(html);
-	var display_buffer 	= [];
 
-	// FOR EACH RESULT_TYPE (SEARCH, ADS, ...)
-	var result_type_name;
-	for (var i=0, l=selected_result_types.length; i<l; i++) {
-		var result_type_name = selected_result_types[i];
 
-		if (result_type_name.indexOf('.') === -1) {
-			// Take all the result_type
-			var result_type_placements = result_types[result_type_name];
-		}else{
-			// Take a sub type of result_type
-			var parts = result_type_name.split('.');
-			var result_type_name = parts[0];
-			var result_type_placement_name = parts[1];
-			var result_type_placements = {};
-			result_type_placements[result_type_placement_name] = result_types[result_type_name][result_type_placement_name];
+	{
 
-		}
 
-		// FOR EACH PLACEMENT OF THE RESULT_TYPE
-		for (result_type_placement_name in result_type_placements) {
-			var result_type_placement = result_type_placements[result_type_placement_name];
-			var jpaths = result_type_placement['jpaths'];
-			var jpath  = jpaths.join(',');
+		var $html 			= $(html);
+		var display_buffer 	= [];
 
-			var pattern_results = $html.find(jpath);
-			var nb_results 		= pattern_results.length;
-			if (nb_results == 0) {
-				continue;
+		// FOR EACH RESULT_TYPE (SEARCH, ADS, ...)
+		var result_type_name;
+		for (var i=0, l=selected_result_types.length; i<l; i++) {
+			var result_type_name = selected_result_types[i];
+
+			if (result_type_name.indexOf('.') === -1) {
+				// Take all the result_type
+				var result_type_placements = result_types[result_type_name];
+			}else{
+				// Take a sub type of result_type
+				var parts = result_type_name.split('.');
+				var result_type_name = parts[0];
+				var result_type_placement_name = parts[1];
+				var result_type_placements = {};
+				result_type_placements[result_type_placement_name] = result_types[result_type_name][result_type_placement_name];
 			}
-			//console.log(result_type_name + ' -> ' + result_type_placement_name + ' -> ' + nb_results);
 
-			pattern_results.each(function (n, item) {
-				var tmp_buffer = callback(n, item, result_type_name, result_type_placement_name);
-				if (tmp_buffer) {
-					for (var i=0, l=tmp_buffer.length; i<l; i++) {
-						display_buffer.push(tmp_buffer[i]);
-					}
+			// FOR EACH PLACEMENT OF THE RESULT_TYPE
+			for (result_type_placement_name in result_type_placements) {
+				var result_type_placement = result_type_placements[result_type_placement_name];
+				var jpaths = result_type_placement['jpaths'];
+				var jpath  = jpaths.join(',');
+
+				var pattern_results = $html.find(jpath);
+				var nb_results 		= pattern_results.length;
+				if (nb_results == 0) {
+					continue;
 				}
-			});
+				//console.log(result_type_name + ' -> ' + result_type_placement_name + ' -> ' + nb_results);
+
+				pattern_results.each(function (n, item) {
+					var tmp_buffer = callback(n, item, result_type_name, result_type_placement_name);
+					if (tmp_buffer) {
+						for (var i=0, l=tmp_buffer.length; i<l; i++) {
+							display_buffer.push(tmp_buffer[i]);
+						}
+					}
+				});
+			}
 		}
 
+		displayResults(display_buffer);
+		process.exit(0);	// is not implicit on Windows
 	}
 
-	displayResults(display_buffer);
 }
 
 /* ####################### SPECIFIC GOOGLE ## */
@@ -686,4 +693,9 @@ function parseResultItemInfosGoogle(result_type_name, result_type_placement_name
 
 function displayResults(display_buffer) {
 	console.log(display_buffer.join("\n"));
+}
+
+function FsExistsSync() {
+	var fn = (fs.existsSync !== undefined) ? fs.existsSync : path.existsSync;
+	return fn.apply(arguments);
 }
