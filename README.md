@@ -1,13 +1,19 @@
 node_google_search
 ==================
 
+
+
 Dependencies :
 <pre>
- - jsdom and/or jquery
+jsdom and/or jquery
 </pre>
 
 
 Usage :
+<pre>
+- google_search.js depends on jquery module.
+- google_search_jsdom.js depends on jsdom module.
+</pre>
 <pre>
 $ node google_search.js
 NodeJS Google search - version 0.1
