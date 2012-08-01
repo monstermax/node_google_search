@@ -52,6 +52,8 @@ var selected_scrap_rules = [];
 // Parse command line cmd_args
 var cmd_args = process.argv.splice(2);
 parseArguments(cmd_args);
+//console.log('DEBUG: keywords => ', keywords);
+//console.log('DEBUG: proxies => ', proxies);
 //console.log('DEBUG: curl_config => ', curl_config);
 //console.log('DEBUG: batch_config => ', batch_config);
 //console.log('DEBUG: display_config => ', display_config);
@@ -396,7 +398,7 @@ function getPageContent(keyword, page_url, curl_config, proxy, onFetchComplete) 
 				});
 			}
 			// Execute callback function
-			onFetchComplete(html);
+			onFetchComplete(keyword, html);
 		});
 	});
 
