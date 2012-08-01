@@ -1,101 +1,43 @@
 
-var http 		= require('http');
-var util 		= require('util');
-var fs 			= require('fs');
-var url 		= require('url');
-var crypto 	= require('crypto');
-var path 	= require('path');
-var $ 			= require('jquery');
+var http   = require('http');
+var util   = require('util');
+var fs     = require('fs');
+var url    = require('url');
+var crypto = require('crypto');
+var path   = require('path');
+var $      = require('jquery');
 
 
 var curl_config = {
 	"agent"			: 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/535.7 (KHTML, like Gecko) Ubuntu/11.10 Chromium/16.0.912.77 Chrome/16.0.912.77 Safari/535.7',
-	"use_cache"	: false,
+	"use_cache"		: false,
 	"proxy"			: '',
 	"verbose"		: true,
 };
 
-
-var result_types = {
-	'search': {
-		'onebox' : {
-			'jpaths' : [
-				'div#search ol#rso li>div>div.obcontainer>div>h3.r>a',		/* onebox ex: "manchester united" */
-				'div#search ol#rso li>div>div.ibk>h3.r>a',							/* onebox maps. ex: 12 rue des plantes paris */
-				'div#search ol#rso li>div>div.obcontainer>div>h3',				/* onebox billets avion. ex: billet avion agadir */
-			]
-		},
-		'natural' : {
-			'jpaths': [
-				'div#search ol#rso li>div.vsc>h3.r>a',							/* natural results */
-				'div#search ol#rso li>h3.r>a',											/* universal search */
-				'div#search ol#rso li>div.vsc>div>table h3.r>a',			/* videos */
-			]
-		},
-		'count':	{
-			'jpaths'	: ['#resultStats'],
-		}
-	},
-	'ads': {
-		'top': {
-			'jpaths':	[
-				/* '#tads>ol>li>h3>a', */
-				'#tads>ol li>div.vsc>h3>a',		/* ex: jupe rouge */
-			],
-		},
-		'right'	: {
-			'jpaths':	[
-				'div#rhs_block ol>li>div:nth-child(1)>div>a',		/* adwords google-product with image */
-				'div#rhs_block ol li>h3>a',							/* adwords classic */
-			],
-		},
-		'bottom'	: {
-			'jpaths':	[
-				'#tadsb>ol li>div.vsc>h3>a',			/* ex: jupe twenga */
-			],
-		},
-	},
-	'stuff'	: {
-		'top'		: {
-			'jpaths': [
-				'#topstuff>div>div>h2.r>a',							/* bourse. ex: ILD */
-				'#search>#ires>ol>li.g div.obcontainer>div>h3.r',	/* meteo. ex: temps a paris */
-				'#topstuff>table td>h2.r',							/* maths. ex: pi */
-				'#topstuff>div.obp>div.obcontainer>div>div>a',		/* horaire de cinema. ex: projet x */
-			],
-		},
-		'bottom'	: {
-			'jpaths': ['#botstuff>div>div>h2.r>a'],		/* some examples ? */
-		},
-		"related_bottom": {
-			'jpaths': ['#botstuff>div#brs>div.brs_col>p>a'],		/* recherches associees */
-		},
-		"google+_right": {
-			'jpaths': ['#rhs_block table.ts div.gl>a'],			/* google+. ex: mon adresse ip */
-		},
-		"album_search_bottom": {
-			'jpaths': ['div#search ol#rso li.g>div>div>a:nth-child(2)'],		/* albums music. ex: rihanna*/
-		},
-		"maps_right": {
-			'jpaths': ['div#rhs_block div.rhsvw span>span>a.fl'],		/* maps, on the right column ex: reston cosmetic dentist */
-		},
-	},
+var batch_config = {
+	"proxy_file"	: null,
+	"batch_file"	: null,
 };
+
+
+var keywords              = [];
+var result_types          = getJpathsConfig();
 var selected_result_types = [];
 
 
 
 var gg_params = {
-	"start"					: 0,
-	"num"					: 10,
-	"tld"						: 'fr',
-	"hl"						: 'fr',
-	"keyword"			: '',
-	"show_title"		: false,
+	"keyword"		: '',
+	"start"			: 0,
+	"num"			: 10,
+	"tld"			: 'fr',
+	"hl"			: 'fr',
+	"show_title"	: false,
 	"show_domain"	: false,
 	"show_keyword"	: false,
-	"nofilter"				: false,
-	"safe"					: 'moderate',	/* *EMPTY*=moderate=images / strict=on=active / off */
+	"nofilter"		: false,
+	"safe"			: 'moderate',	/* *EMPTY*=moderate=images / strict=on=active / off */
 	"simulate"		: false,
 };
 
@@ -104,9 +46,6 @@ var gg_params = {
 var arguments = process.argv.splice(2);
 parseArguments(arguments);
 
-if (gg_params.keyword == '') {
-	usage();
-}
 
 // Default mode (display all placements)
 if (selected_result_types.length == 0) {
@@ -114,15 +53,16 @@ if (selected_result_types.length == 0) {
 	selected_result_types = ['search.natural'];
 }
 
+
 // Handle proxy file
-if (curl_config.proxy_file) {
+if (batch_config.proxy_file) {
 	if (curl_config.verbose) {
-		console.error('Using proxy file : ' + curl_config.proxy_file);
+		console.error('Using proxy file : ' + batch_config.proxy_file);
 	}
 
-	if (FsExistsSync(curl_config.proxy_file)) {
-		//console.error('Reading file://' + curl_config.proxy_file);
-		var proxy_contents = fs.readFileSync(curl_config.proxy_file).toString();
+	if (FsExistsSync(batch_config.proxy_file)) {
+		//console.error('Reading file://' + batch_config.proxy_file);
+		var proxy_contents = fs.readFileSync(batch_config.proxy_file).toString();
 		var lines = proxy_contents.split("\n");
 		var nb_lines = lines.length;
 		var proxy = "";
@@ -142,19 +82,41 @@ if (curl_config.proxy_file) {
 
 }
 
-// Process google query
-var gg_url = getGoogleWebSearchUrl(gg_params.tld, gg_params.hl, gg_params.keyword, gg_params.start, gg_params.num, gg_params.nofilter, gg_params.safe);
 
-if (gg_params.simulate) {
-	console.log(gg_url);
-	process.exit(0);
+
+// Handle batch file
+// TODO
+
+
+if (keywords.length == 0) {
+	usage();
 }
 
-// Parse google result content
-getPageContent(gg_url, curl_config, function (content) {
-	parsePageContent(content, result_types, selected_result_types, parseResultItemGoogle);
-});
 
+function runNextKeyword() {
+	var kw = keywords.shift();
+	if !(kw) {
+		// end of keywords list
+		return;
+	}
+
+
+	// Process google query
+	var gg_url = getGoogleWebSearchUrl(gg_params.tld, gg_params.hl, kw, gg_params.start, gg_params.num, gg_params.nofilter, gg_params.safe);
+
+	if (gg_params.simulate) {
+		console.log(gg_url);
+		process.exit(0);
+	}
+
+	// Parse google result content
+	getPageContent(gg_url, curl_config, function (content) {
+		parsePageContent(content, result_types, selected_result_types, parseResultItemGoogle);
+	});
+}
+
+
+runNextKeyword();
 
 return;
 
@@ -197,6 +159,9 @@ function usage(rc) {
 		'	-agent <string>		: change user agent 					default: see in code...',
 		'	-proxy <string>		: use proxy 		(format: "hostname:port" or "user:password@hostname:port")',
 		'	-proxyfile <string>	: use proxy file 	(file format: one proxy per line)',
+		'',
+		' Batch mode :',
+		'	-batchfile <string>	: keywords file 	(file format: one keyword per line)',
 		'',
 		'  Misc options :',
 		'	-q | -quiet		: disable notice messages				default: false',
@@ -311,7 +276,11 @@ function parseArguments(arguments) {
 				i++;
 				break;
 			case '-proxyfile':
-				curl_config.proxy_file = arg1;
+				batch_config.proxy_file = arg1;
+				i++;
+				break;
+			case '-batchfile':
+				batch_config.batch_file = arg1;
 				i++;
 				break;
 			default:
@@ -698,4 +667,72 @@ function displayResults(display_buffer) {
 function FsExistsSync() {
 	var fn = (fs.existsSync !== undefined) ? fs.existsSync : path.existsSync;
 	return fn.apply(arguments);
+}
+
+function getJpathsConfig() {
+	return {
+		'search': {
+			'onebox' : {
+				'jpaths' : [
+					'div#search ol#rso li>div>div.obcontainer>div>h3.r>a',		/* onebox ex: "manchester united" */
+					'div#search ol#rso li>div>div.ibk>h3.r>a',							/* onebox maps. ex: 12 rue des plantes paris */
+					'div#search ol#rso li>div>div.obcontainer>div>h3',				/* onebox billets avion. ex: billet avion agadir */
+				]
+			},
+			'natural' : {
+				'jpaths': [
+					'div#search ol#rso li>div.vsc>h3.r>a',							/* natural results */
+					'div#search ol#rso li>h3.r>a',											/* universal search */
+					'div#search ol#rso li>div.vsc>div>table h3.r>a',			/* videos */
+				]
+			},
+			'count':	{
+				'jpaths'	: ['#resultStats'],
+			}
+		},
+		'ads': {
+			'top': {
+				'jpaths':	[
+					/* '#tads>ol>li>h3>a', */
+					'#tads>ol li>div.vsc>h3>a',		/* ex: jupe rouge */
+				],
+			},
+			'right'	: {
+				'jpaths':	[
+					'div#rhs_block ol>li>div:nth-child(1)>div>a',		/* adwords google-product with image */
+					'div#rhs_block ol li>h3>a',							/* adwords classic */
+				],
+			},
+			'bottom'	: {
+				'jpaths':	[
+					'#tadsb>ol li>div.vsc>h3>a',			/* ex: jupe twenga */
+				],
+			},
+		},
+		'stuff'	: {
+			'top'		: {
+				'jpaths': [
+					'#topstuff>div>div>h2.r>a',							/* bourse. ex: ILD */
+					'#search>#ires>ol>li.g div.obcontainer>div>h3.r',	/* meteo. ex: temps a paris */
+					'#topstuff>table td>h2.r',							/* maths. ex: pi */
+					'#topstuff>div.obp>div.obcontainer>div>div>a',		/* horaire de cinema. ex: projet x */
+				],
+			},
+			'bottom'	: {
+				'jpaths': ['#botstuff>div>div>h2.r>a'],		/* some examples ? */
+			},
+			"related_bottom": {
+				'jpaths': ['#botstuff>div#brs>div.brs_col>p>a'],		/* recherches associees */
+			},
+			"google+_right": {
+				'jpaths': ['#rhs_block table.ts div.gl>a'],			/* google+. ex: mon adresse ip */
+			},
+			"album_search_bottom": {
+				'jpaths': ['div#search ol#rso li.g>div>div>a:nth-child(2)'],		/* albums music. ex: rihanna*/
+			},
+			"maps_right": {
+				'jpaths': ['div#rhs_block div.rhsvw span>span>a.fl'],		/* maps, on the right column ex: reston cosmetic dentist */
+			},
+		},
+	};
 }
