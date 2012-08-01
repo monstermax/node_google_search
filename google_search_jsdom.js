@@ -52,7 +52,9 @@ var selected_scrap_rules = [];
 // Parse command line cmd_args
 var cmd_args = process.argv.splice(2);
 parseArguments(cmd_args);
-console.log('DEBUG: batch_config => ', batch_config);
+//console.log('DEBUG: curl_config => ', curl_config);
+//console.log('DEBUG: batch_config => ', batch_config);
+//console.log('DEBUG: display_config => ', display_config);
 
 
 // Default mode (display all placements)
@@ -60,7 +62,7 @@ if (selected_scrap_rules.length === 0) {
 	//selected_scrap_rules = ['search', 'ads', 'stuff'];
 	selected_scrap_rules = ['search.natural'];
 }
-console.log('DEBUG: selected_scrap_rules => ', selected_scrap_rules);
+//console.log('DEBUG: selected_scrap_rules => ', selected_scrap_rules);
 
 
 
@@ -68,13 +70,13 @@ console.log('DEBUG: selected_scrap_rules => ', selected_scrap_rules);
 if (batch_config.proxy_file) {
 	proxies = readProxiesFile(batch_config.proxy_file);
 }
-console.log('DEBUG: ' + proxies.length + ' proxies');
+console.error('Using ' + proxies.length + ' proxies');
 
 // Reading batch file
 if (batch_config.batch_file) {
 	keywords = readKeywordsFile(batch_config.batch_file);
 }
-console.log('DEBUG: ' + keywords.length + ' keywords');
+console.error('Running ' + keywords.length + ' keywords');
 
 if (keywords.length === 0) {
 	usage();
@@ -83,6 +85,7 @@ if (keywords.length === 0) {
 
 
 function runNextKeyword() {
+	//console.log("DEBUG: shift keyword", keywords);
 
 	// Choose one keyword
 	var keyword = keywords.shift();
@@ -108,17 +111,22 @@ function runNextKeyword() {
 
 	
 	// Process google query
-	getPageContent(gg_url, curl_config, proxy, fetchPageCallback);
+	getPageContent(keyword, gg_url, curl_config, proxy, fetchPageCallback);
 }
 
-function fetchPageCallback(content) {
+function fetchPageCallback(keyword, content) {
 	// Parse google result content
-	parsePageContent(content, all_scrap_rules, selected_scrap_rules, parseResultItemGoogle, runNextKeyword);
+	parsePageContent(keyword, content, all_scrap_rules, selected_scrap_rules, parseResultItemGoogle, parsePageCallback);
+}
+
+function parsePageCallback() {
+	runNextKeyword();
 }
 
 
 function finalyzeProcess() {
 	// End of all keywords
+	console.error(' => All keywords done.');
 	process.exit(0);
 }
 
@@ -214,7 +222,7 @@ function parseArguments(cmd_args) {
 					var buffer              = [];
 					var sub_rules_names     = Object.keys(sub_all_scrap_rules);
 					for (var j=0, k=sub_rules_names.length; j<k; j++) {	// for each second level rule...
-						var sub_rule_name = sub_all_scrap_rules[j];
+						var sub_rule_name = sub_rules_names[j];
 						buffer.push(sub_rule_name);
 					}
 					console.log(' -' + rule_name + " => " + buffer.join(' '));
@@ -350,7 +358,7 @@ function getCurlOptionsFromUrl(curl_url, curl_config, proxy) {
 }
 
 
-function getPageContent(page_url, curl_config, proxy, onFetchComplete) {
+function getPageContent(keyword, page_url, curl_config, proxy, onFetchComplete) {
 	var options = getCurlOptionsFromUrl(page_url, curl_config, proxy);
 
 	//var page_url = 'http://' + options.host + options.path;
@@ -369,7 +377,7 @@ function getPageContent(page_url, curl_config, proxy, onFetchComplete) {
 				console.error('Reading cache: file://' + cache_file);
 			}
 			html = fs.readFileSync(cache_file).toString();
-			return onFetchComplete(html);
+			return onFetchComplete(keyword, html);
 		}
 	}
 
@@ -396,16 +404,7 @@ function getPageContent(page_url, curl_config, proxy, onFetchComplete) {
 
 
 
-function parsePageContent(html, all_scrap_rules, selected_scrap_rules, onResultItemCallback, onCompleteCallback) {
-
-	var doSomethingOnItem = function (n, item) {
-		var tmp_buffer = onResultItemCallback(n, item, result_type_name, result_type_placement_name, $);
-		if (tmp_buffer) {
-			for (var i=0, l=tmp_buffer.length; i<l; i++) {
-				display_buffer.push(tmp_buffer[i]);
-			}
-		}
-	};
+function parsePageContent(keyword, html, all_scrap_rules, selected_scrap_rules, onResultItemCallback, onParseComplete) {
 
 	var window = jsdom.jsdom(html).createWindow();
 	jsdom.jQueryify(window, 'http://code.jquery.com/jquery-1.4.2.min.js', function() {
@@ -414,44 +413,54 @@ function parsePageContent(html, all_scrap_rules, selected_scrap_rules, onResultI
 		var $html          = $(html);
 		var display_buffer = [];
 
-		// FOR EACH RESULT_TYPE (SEARCH, ADS, ...)
-		var result_type_name, result_type_placements, result_type_placement_name;
+		// FOR EACH RULE (SEARCH, ADS, ...)
+		
 		for (var i=0, l=selected_scrap_rules.length; i<l; i++) {	// for each first level rule...
-			result_type_name = selected_scrap_rules[i];
+			var rule_name = selected_scrap_rules[i];
+			var rule_placements;
 
-			if (result_type_name.indexOf('.') === -1) {
-				// Take all the result_type
-				result_type_placements = all_scrap_rules[result_type_name];
+			if (rule_name.indexOf('.') === -1) {
+				// Take all the rule
+				rule_placements = all_scrap_rules[rule_name];
+
 			}else{
-				// Take a sub type of result_type
-				var parts                  = result_type_name.split('.');
-				result_type_name           = parts[0];
-				result_type_placement_name = parts[1];
-				result_type_placements     = {};
-				result_type_placements[result_type_placement_name] = all_scrap_rules[result_type_name][result_type_placement_name];
+				// Take a sub type of rule
+				var parts                                = rule_name.split('.');
+				rule_name                                = parts[0];
+				var tmp_rule_placement_name              = parts[1];
+				rule_placements                          = {};
+				rule_placements[tmp_rule_placement_name] = all_scrap_rules[rule_name][tmp_rule_placement_name];
 			}
 
-			// FOR EACH PLACEMENT OF THE RESULT_TYPE
-			for (result_type_placement_name in result_type_placements) {	// for each second level rule...
-				result_type_placement = result_type_placements[result_type_placement_name];
-				var jpaths            = result_type_placement['jpaths'];
-				var jpath             = jpaths.join(',');
-
-				var pattern_results = $html.find(jpath);
-				var nb_results      = pattern_results.length;
+			// FOR EACH PLACEMENT OF THE RULE
+			var rule_placements_names = Object.keys(rule_placements);
+			for (var j=0, m=rule_placements_names.length; j<m; j++) {	// for each second level rule...
+				var rule_placement_name = rule_placements_names[j];
+				var rule_placement      = rule_placements[rule_placement_name];
+				var jpaths              = rule_placement['jpaths'];
+				var jpath               = jpaths.join(',');
+				var pattern_results     = $html.find(jpath);
+				var nb_results          = pattern_results.length;
 				if (nb_results === 0) {
 					continue;
 				}
-				//console.log(result_type_name + ' -> ' + result_type_placement_name + ' -> ' + nb_results);
+				//console.log(rule_name + ' -> ' + rule_placement_name + ' -> ' + nb_results);
 
-				pattern_results.each(doSomethingOnItem);
+				pattern_results.each(function (n, item) {
+					var tmp_buffer = onResultItemCallback(keyword, n, item, rule_name, rule_placement_name, $);
+					if (tmp_buffer) {
+						for (var i=0, l=tmp_buffer.length; i<l; i++) {
+							display_buffer.push(tmp_buffer[i]);
+						}
+					}
+				});
 			}
 		}
 
 		displayResults(display_buffer);
 
-		if (typeof(onCompleteCallback) == 'function') {
-			onCompleteCallback();
+		if (typeof(onParseComplete) == 'function') {
+			onParseComplete();
 		}else{
 			process.exit(0);	// is not implicit on Windows
 		}
@@ -478,7 +487,7 @@ function getGoogleWebSearchUrl(gg_params, keyword) {
 }
 
 
-function parseResultItemGoogle(n, item, result_type_name, result_type_placement_name, $) {
+function parseResultItemGoogle(keyword, n, item, result_type_name, result_type_placement_name, $) {
 
 	var $item         = $(item);
 	var item_tag_name = item.tagName;
@@ -500,7 +509,7 @@ function parseResultItemGoogle(n, item, result_type_name, result_type_placement_
 
 	// column "keyword"
 	if (display_config.show_keyword) {
-		item_buffer.push(gg_params.keyword);
+		item_buffer.push(keyword);
 	}
 
 	// column "position"
@@ -708,8 +717,7 @@ function readProxiesFile(proxy_file) {
 		var lines          = proxy_contents.split("\n");
 		var nb_lines       = lines.length;
 		for (var i=0; i<nb_lines; i++) {
-			var tmp_proxy = lines[ Math.floor((Math.random()*nb_lines)) ];
-			proxies.push(tmp_proxy);
+			proxies.push(lines[i]);
 		}
 	}else{
 		console.error('Invalid proxy file');
@@ -732,8 +740,7 @@ function readKeywordsFile(batch_file) {
 		var lines       = kw_contents.split("\n");
 		var nb_lines    = lines.length;
 		for (var i=0; i<nb_lines; i++) {
-			var tmp_kw = lines[ Math.floor((Math.random()*nb_lines)) ];
-			keywords.push(tmp_kw);
+			keywords.push(lines[i]);
 		}
 	}else{
 		console.error('Invalid batch file');
