@@ -29,7 +29,8 @@ var all_scrap_rules = readScrapSelectors();
 var display_config = {
 	"show_title"	: false,
 	"show_domain"	: false,
-	"show_keyword"	: false
+	"show_keyword"	: false,
+	"show_proxy"	: false
 };
 
 var gg_params = {
@@ -86,6 +87,7 @@ if (keywords.length === 0) {
 
 
 
+
 function runNextKeyword() {
 	//console.log("DEBUG: shift keyword", keywords);
 
@@ -115,6 +117,7 @@ function runNextKeyword() {
 	// Process google query
 	getPageContent(keyword, gg_url, curl_config, proxy, fetchPageCallback);
 }
+
 
 function fetchPageCallback(keyword, content) {
 	// Parse google result content
@@ -184,7 +187,7 @@ function usage(rc) {
 		'	-q | -quiet		: disable notice messages				default: false',
 		'	-types			: display placements types (and quit)',
 		'	-fake			: display google url (and quit)',
-		'	-h | -help		: display this message				'
+		'	-h | -help		: display this message'
 	];
 	console.log(_usage.join("\n"));
 
@@ -300,7 +303,9 @@ function parseArguments(cmd_args) {
 				i++;
 				break;
 			case '-batchfile':
-				batch_config.batch_file = arg1;
+				batch_config.batch_file     = arg1;
+				display_config.show_proxy   = true;
+				display_config.show_keyword = true;
 				i++;
 				break;
 			default:
@@ -409,7 +414,7 @@ function getPageContent(keyword, page_url, curl_config, proxy, onFetchComplete) 
 function parsePageContent(keyword, html, all_scrap_rules, selected_scrap_rules, onResultItemCallback, onParseComplete) {
 
 	var window = jsdom.jsdom(html).createWindow();
-	jsdom.jQueryify(window, 'http://code.jquery.com/jquery-1.4.2.min.js', function() {
+	jsdom.jQueryify(window, 'jquery-1.4.2.min.js', function() {
 		var $ = window.$;
 
 		var $html          = $(html);
@@ -516,14 +521,6 @@ function parseResultItemGoogle(keyword, n, item, result_type_name, result_type_p
 
 	// column "position"
 	item_buffer.push(position);
-	/*
-	for (var i=0, l=item_infos.length; i<l; i++) {
-		item_buffer.push(item_infos[i]);
-		if (! display_config.show_title) {
-			break;
-		}
-	}
-	*/
 
 	// column "link"
 	item_buffer.push(item_infos[0]);
@@ -615,14 +612,7 @@ function parseResultItemInfosGoogle(result_type_name, result_type_placement_name
 				break;
 			}
 		}
-		/*
-		for (univ_search_name in univ_search_patterns) {
-			if (item_url.indexOf(univ_search_patterns[univ_search_name]) > -1) {
-				univ_search_type = univ_search_name;
-				break;
-			}
-		}
-		*/
+
 		return univ_search_type;
 	}
 
