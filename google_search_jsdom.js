@@ -39,7 +39,8 @@ var gg_params = {
 	"tld"			: 'fr',
 	"hl"			: 'fr',
 	"nofilter"		: false,
-	"safe"			: 'moderate'	/* *EMPTY*=moderate=images / strict=on=active / off */
+	"safe"			: 'moderate',	/* *EMPTY*=moderate=images / strict=on=active / off */
+	"tbs"			: null
 };
 
 
@@ -179,6 +180,7 @@ function usage(rc) {
 		'	-tld <string>		: google country extension				default: fr',
 		'	-hl | -lang <string>	: google language parameter				default: fr',
 		'	-safe <string>		: change safe level (off,moderate,strict)		default: moderate',
+		'	-date <string>		: filter results on last hour(h) / day(d) / week(w) / year(y) ',
 		'',
 		'  Connection options :',
 		'	-cache			: use local fs cache					default: no cache',
@@ -313,6 +315,17 @@ function parseArguments(cmd_args) {
 				display_config.show_proxy   = true;
 				display_config.show_keyword = true;
 				i++;
+				break;
+			case '-tbs':
+			case '-date':
+				gg_params.tbs = arg1;
+				i++;
+				// TODO
+				// &tbs=qdr:h
+				// &tbs=qdr:d
+				// &tbs=qdr:w
+				// &tbs=qdr:m
+				// &tbs=qdr:y
 				break;
 			default:
 				if (keywords.length === 0 && arg0.indexOf('-') !== 0) {
@@ -504,6 +517,7 @@ function getGoogleWebSearchUrl(gg_params, keyword) {
 	if (gg_params.start !== undefined && !isNaN(gg_params.start))	gg_url += '&start=' + gg_params.start;
 	if (gg_params.nofilter)											gg_url += '&filter=0';
 	if (gg_params.safe !== '')										gg_url += '&safe=' + gg_params.safe;
+	if (gg_params.tbs !== null)										gg_url += '&tbs=qdr:' + gg_params.tbs;
 
 	return gg_url;
 }
