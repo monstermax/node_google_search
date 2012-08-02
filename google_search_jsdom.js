@@ -436,8 +436,10 @@ function parsePageContent(keyword, html, all_scrap_rules, selected_scrap_rules, 
 
 	if (DEBUG) console.log('DEBUG: parsePageContent => ', html.length, ' bytes to parse');
 
-	//var jquery_path = 'http://code.jquery.com/jquery-1.4.2.min.js';
 	var jquery_path = 'jquery-1.4.2.min.js';
+	if (! FsExistsSync(jquery_path)) {
+		jquery_path = 'http://code.jquery.com/jquery-1.4.2.min.js';
+	}
 
 	var window = jsdom.jsdom(html).createWindow();
 	jsdom.jQueryify(window, jquery_path, function() {
