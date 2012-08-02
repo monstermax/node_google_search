@@ -47,17 +47,17 @@ var gg_params = {
 var keywords             = [];
 var proxies              = [];
 var selected_scrap_rules = [];
-
+var DEBUG                = false;
 
 
 // Parse command line cmd_args
 var cmd_args = process.argv.splice(2);
 parseArguments(cmd_args);
-//console.log('DEBUG: keywords => ', keywords);
-//console.log('DEBUG: proxies => ', proxies);
-//console.log('DEBUG: curl_config => ', curl_config);
-//console.log('DEBUG: batch_config => ', batch_config);
-//console.log('DEBUG: display_config => ', display_config);
+if (DEBUG) console.log('DEBUG: keywords => ', keywords);
+if (DEBUG) console.log('DEBUG: proxies => ', proxies);
+if (DEBUG) console.log('DEBUG: curl_config => ', curl_config);
+if (DEBUG) console.log('DEBUG: batch_config => ', batch_config);
+if (DEBUG) console.log('DEBUG: display_config => ', display_config);
 
 
 // Default mode (display all placements)
@@ -65,7 +65,7 @@ if (selected_scrap_rules.length === 0) {
 	//selected_scrap_rules = ['search', 'ads', 'stuff'];
 	selected_scrap_rules = ['search.natural'];
 }
-//console.log('DEBUG: selected_scrap_rules => ', selected_scrap_rules);
+if (DEBUG) console.log('DEBUG: selected_scrap_rules => ', selected_scrap_rules);
 
 
 
@@ -89,7 +89,7 @@ if (keywords.length === 0) {
 
 
 function runNextKeyword() {
-	//console.log("DEBUG: shift keyword", keywords);
+	if (DEBUG) console.log("DEBUG: runNextKeyword / shifting keyword / ", keywords.length, ' remaining');
 
 	// Choose one keyword
 	var keyword = keywords.shift();
@@ -97,6 +97,8 @@ function runNextKeyword() {
 		// end of keywords list
 		return finalyzeProcess();
 	}
+	if (DEBUG) console.log("DEBUG: choosen keyword : ", keyword);
+
 
 	// Choose one proxy
 	var proxy = null;
@@ -104,9 +106,13 @@ function runNextKeyword() {
 		var nb_proxies = proxies.length;
 		proxy = proxies[ Math.floor((Math.random()*nb_proxies)) ];
 	}
+	if (DEBUG) console.log("DEBUG: choosen proxy : ", proxy);
+
 
 	// Process google query
 	var gg_url = getGoogleWebSearchUrl(gg_params, keyword);
+	if (DEBUG) console.log("DEBUG: gg_url : ", gg_url);
+
 
 	if (curl_config.simulate) {
 		console.log(gg_url);
@@ -366,6 +372,8 @@ function getCurlOptionsFromUrl(curl_url, curl_config, proxy) {
 
 
 function getPageContent(keyword, page_url, curl_config, proxy, onFetchComplete) {
+	if (DEBUG) console.log('DEBUG: getPageContent => ', page_url);
+
 	var options = getCurlOptionsFromUrl(page_url, curl_config, proxy);
 
 	//var page_url = 'http://' + options.host + options.path;
@@ -413,9 +421,16 @@ function getPageContent(keyword, page_url, curl_config, proxy, onFetchComplete) 
 
 function parsePageContent(keyword, html, all_scrap_rules, selected_scrap_rules, onResultItemCallback, onParseComplete) {
 
+	if (DEBUG) console.log('DEBUG: parsePageContent => ', html.length, ' bytes to parse');
+
+	//var jquery_path = 'http://code.jquery.com/jquery-1.4.2.min.js';
+	var jquery_path = 'jquery-1.4.2.min.js';
+
 	var window = jsdom.jsdom(html).createWindow();
-	jsdom.jQueryify(window, 'jquery-1.4.2.min.js', function() {
+	jsdom.jQueryify(window, jquery_path, function() {
 		var $ = window.$;
+
+		if (DEBUG) console.log('jQueryifyied');
 
 		var $html          = $(html);
 		var display_buffer = [];
@@ -451,7 +466,7 @@ function parsePageContent(keyword, html, all_scrap_rules, selected_scrap_rules, 
 				if (nb_results === 0) {
 					continue;
 				}
-				//console.log(rule_name + ' -> ' + rule_placement_name + ' -> ' + nb_results);
+				if (DEBUG) console.log(rule_name + ' -> ' + rule_placement_name + ' -> ' + nb_results);
 
 				pattern_results.each(function (n, item) {
 					var tmp_buffer = onResultItemCallback(keyword, n, item, rule_name, rule_placement_name, $);
