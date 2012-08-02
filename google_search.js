@@ -28,7 +28,7 @@ function main() {
 		batch: {
 			"proxy_file"	: null,
 			"batch_file"	: null,
-			"threads"		: 10
+			"threads"		: 1
 		},
 		display: {
 			"show_title"	: false,
@@ -82,6 +82,7 @@ function main() {
 		keywords = readKeywordsFile(config.batch.batch_file);
 	}
 	console.error('Running ' + keywords.length + ' keywords');
+	console.error('Running ' + config.batch.threads + ' threads');
 
 
 	if (keywords.length === 0) {
@@ -657,6 +658,10 @@ function parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scra
 				break;
 			case '-proxy':
 				proxies = [arg1];
+				i++;
+				break;
+			case '-threads':
+				config.batch.threads = arg1;
 				i++;
 				break;
 			case '-proxyfile':
