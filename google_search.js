@@ -176,7 +176,8 @@ Batch.prototype = {
 		//keyword_run.onComplete = this.runNext;
 		keyword_run.onComplete = function () {
 			var args = arguments;
-			return setTimeout(function () {_batch.runNext.apply(_batch, args);}, _batch.config.batch.thread_delay);
+			var delay = this.keywords.length ? _batch.config.batch.thread_delay : 0;
+			return setTimeout(function () {_batch.runNext.apply(_batch, args);}, delay);
 		};
 
 		keyword_run.run(this.run);
