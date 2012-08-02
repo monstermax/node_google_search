@@ -28,7 +28,8 @@ function main() {
 		batch: {
 			"proxy_file"	: null,
 			"batch_file"	: null,
-			"threads"		: 1
+			"threads"		: 1,
+			"thread_delay"	: 5000,
 		},
 		display: {
 			"show_title"	: false,
@@ -173,7 +174,11 @@ Batch.prototype = {
 		keyword_run.setSearchParams(this.gg_params);
 		keyword_run.setScrapRules(this.selected_scrap_rules);
 		//keyword_run.onComplete = this.runNext;
-		keyword_run.onComplete = function () {return _batch.runNext.apply(_batch, arguments);}
+		keyword_run.onComplete = function () {
+			var args = arguments;
+			return setTimeout(function () {_batch.runNext.apply(_batch, args);}, _batch.config.batch.thread_delay);
+		};
+
 		keyword_run.run(this.run);
 
 	},
@@ -373,7 +378,7 @@ KeywordRun.prototype = {
 
 			// column "proxy"
 			if (_keyword_run.config.display.show_proxy) {
-				item_buffer.push(_keyword_run.proxy);
+				item_buffer.push(_keyword_run.proxy || '-');
 			}
 
 			// column "position"
@@ -416,6 +421,11 @@ KeywordRun.prototype = {
 					// column "keyword"
 					if (_keyword_run.config.display.show_keyword) {
 						item_buffer.push(_keyword_run.keyword);
+					}
+
+					// column "proxy"
+					if (_keyword_run.config.display.show_proxy) {
+						item_buffer.push(_keyword_run.proxy || '-');
 					}
 
 					// column "position"
@@ -617,6 +627,9 @@ function parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scra
 			case '-domain':
 				config.display.show_domain = true;
 				break;
+			case '-showproxy':
+				config.display.show_proxy = true;
+				break;
 			case '-kw':
 			case '-keyword':
 				config.display.show_keyword = true;
@@ -626,6 +639,9 @@ function parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scra
 				break;
 			case '-nofilter':
 				gg_params.nofilter = true;
+				break;
+			case '-debug':
+				DEBUG = true;
 				break;
 			case '-safe':
 				gg_params.safe = arg1;
@@ -662,6 +678,10 @@ function parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scra
 				break;
 			case '-threads':
 				config.batch.threads = arg1;
+				i++;
+				break;
+			case '-delay':
+				config.batch.thread_delay = arg1;
 				i++;
 				break;
 			case '-proxyfile':
@@ -893,6 +913,7 @@ function usage(rc) {
 		'NodeJS Google search - version 0.1',
 		'',
 		'Usage: $ node ' + path.basename(process.argv[1]) + ' [<options>] <keyword>',
+		'       $ node ' + path.basename(process.argv[1]) + ' [<options>] -batchfile /tmp/keywords_list.txt',
 		'',
 		'  Placement options :',
 		'	-all			: display all (search+count+ads+stuff)			',
@@ -909,6 +930,7 @@ function usage(rc) {
 		'	-title			: display links title					default: not displayed',
 		'	-kw			: display request keyword				default: not displayed',
 		'	-domain			: display links domain					default: not displayed',
+		'	-showproxy			: display used proxy				default: not displayed',		
 		'',
 		'  Google options :',
 		'	-nofilter		: disable duplicate filter search			default: filter activated',
@@ -927,6 +949,8 @@ function usage(rc) {
 		'',
 		' Batch mode :',
 		'	-batchfile <string>	: keywords file			(file format: one keyword per line)',
+		'	-threads <int>		: nb of threads						default: 1',
+		'	-delay <int>		: delay between each request (by thread) in ms.		default: 0',
 		'',
 		'  Misc options :',
 		'	-q | -quiet		: disable notice messages				default: false',
