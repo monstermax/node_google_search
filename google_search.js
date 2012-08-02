@@ -23,13 +23,15 @@ function main() {
 	var config = {
 		curl: {
 			"agent"			: 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/535.7 (KHTML, like Gecko) Ubuntu/11.10 Chromium/16.0.912.77 Chrome/16.0.912.77 Safari/535.7',
+			"proxy"			: null,
 			"use_cache"		: false
 		},
 		batch: {
 			"proxy_file"	: null,
 			"batch_file"	: null,
+			"agent_file"	: null,
 			"threads"		: 1,
-			"thread_delay"	: 5000,
+			"thread_delay"	: 0
 		},
 		display: {
 			"show_title"	: false,
@@ -113,7 +115,8 @@ function main() {
 
 function Batch(keywords, proxies, config) {
 	if (DEBUG) console.log('new Batch');
-	this.keywords             = keywords
+	this.keywords             = keywords;
+	this.nb_keywords          = keywords.length;
 	this.proxies              = proxies;
 	this.config               = config || { curl: {}, batch:{}, display:{} };
 	this.gg_params            = {};
@@ -142,7 +145,7 @@ Batch.prototype = {
 	},
 
 	runNext: function () {
-		if (DEBUG) console.log('Batch.runNext');
+		if (DEBUG) console.log('Batch.runNext / ', (this.nb_keywords-this.keywords.length) + ' / ' + this.nb_keywords + ' done');
 		this.active_threads++;
 
 		// Choose one keyword
@@ -173,10 +176,10 @@ Batch.prototype = {
 		keyword_run.setConfig(this.config);
 		keyword_run.setSearchParams(this.gg_params);
 		keyword_run.setScrapRules(this.selected_scrap_rules);
-		//keyword_run.onComplete = this.runNext;
+		
 		keyword_run.onComplete = function () {
-			var args = arguments;
-			var delay = this.keywords.length ? _batch.config.batch.thread_delay : 0;
+			var args  = arguments;
+			var delay = _batch.keywords.length ? _batch.config.batch.thread_delay : 0;
 			return setTimeout(function () {_batch.runNext.apply(_batch, args);}, delay);
 		};
 
@@ -412,7 +415,7 @@ KeywordRun.prototype = {
 					var $sitelink     = $(sitelink);
 					var sitelink_url  = $(sitelink).attr('href');
 					var sitelink_text = $(sitelink).text();
-					var sitelink_url  = "[SITELINK] " + sitelink_url;
+					sitelink_url      = "[SITELINK] " + sitelink_url;
 					var item_buffer   = [];
 
 					// column "placement"
@@ -931,7 +934,7 @@ function usage(rc) {
 		'	-title			: display links title					default: not displayed',
 		'	-kw			: display request keyword				default: not displayed',
 		'	-domain			: display links domain					default: not displayed',
-		'	-showproxy			: display used proxy				default: not displayed',		
+		'	-showproxy			: display used proxy				default: not displayed',
 		'',
 		'  Google options :',
 		'	-nofilter		: disable duplicate filter search			default: filter activated',
