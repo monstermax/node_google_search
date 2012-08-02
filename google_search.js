@@ -1,195 +1,576 @@
 
+/* Dependencies */
 var http   = require('http');
 var util   = require('util');
 var fs     = require('fs');
 var url    = require('url');
 var crypto = require('crypto');
 var path   = require('path');
-var $      = require('jquery');
+var jsdom  = require('jsdom');
+//var $      = require('jquery');
+
+var DEBUG           = false;
+var all_scrap_rules = readScrapSelectors();
 
 
-var curl_config = {
-	"agent"			: 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/535.7 (KHTML, like Gecko) Ubuntu/11.10 Chromium/16.0.912.77 Chrome/16.0.912.77 Safari/535.7',
-	"use_cache"		: false,
-	"proxy"			: '',
-	"verbose"		: true,
-};
-
-var batch_config = {
-	"proxy_file"	: null,
-	"batch_file"	: null,
-};
+/* ################################################################### */
 
 
-var keywords              = [];
-var result_types          = getJpathsConfig();
-var selected_result_types = [];
+function main() {
+
+	/* Config variables */
+
+	var config = {
+		curl: {
+			"agent"			: 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/535.7 (KHTML, like Gecko) Ubuntu/11.10 Chromium/16.0.912.77 Chrome/16.0.912.77 Safari/535.7',
+			"use_cache"		: false
+		},
+		batch: {
+			"proxy_file"	: null,
+			"batch_file"	: null,
+			"threads"		: 10
+		},
+		display: {
+			"show_title"	: false,
+			"show_domain"	: false,
+			"show_keyword"	: false,
+			"show_proxy"	: false
+		}
+	};
+
+
+	var gg_params = {
+		"start"			: 0,
+		"num"			: 10,
+		"tld"			: 'fr',
+		"hl"			: 'fr',
+		"nofilter"		: false,
+		"safe"			: 'moderate',	/* *EMPTY*=moderate=images / strict=on=active / off */
+		"tbs"			: null
+	};
+
+
+	/* Init variables */
+	var keywords             = [];
+	var proxies              = [];
+	var selected_scrap_rules = [];
+	
+
+	// Parse command line cmd_args
+	var cmd_args = process.argv.splice(2);
+	parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scrap_rules, selected_scrap_rules);
 
 
 
-var gg_params = {
-	"keyword"		: '',
-	"start"			: 0,
-	"num"			: 10,
-	"tld"			: 'fr',
-	"hl"			: 'fr',
-	"show_title"	: false,
-	"show_domain"	: false,
-	"show_keyword"	: false,
-	"nofilter"		: false,
-	"safe"			: 'moderate',	/* *EMPTY*=moderate=images / strict=on=active / off */
-	"simulate"		: false,
-};
+	// Default mode (display all placements)
+	if (selected_scrap_rules.length === 0) {
+		//selected_scrap_rules = ['search', 'ads', 'stuff'];
+		selected_scrap_rules = ['search.natural'];
+	}
 
 
-// Parse command line arguments
-var arguments = process.argv.splice(2);
-parseArguments(arguments);
+
+	// Reading proxy file
+	if (config.batch.proxy_file) {
+		proxies = readProxiesFile(config.batch.proxy_file);
+	}
+	console.error('Using ' + proxies.length + ' proxies');
 
 
-// Default mode (display all placements)
-if (selected_result_types.length == 0) {
-	//selected_result_types = ['search', 'ads', 'stuff'];
-	selected_result_types = ['search.natural'];
+	// Reading batch file
+	if (config.batch.batch_file) {
+		keywords = readKeywordsFile(config.batch.batch_file);
+	}
+	console.error('Running ' + keywords.length + ' keywords');
+
+
+	if (keywords.length === 0) {
+		usage();
+	}
+
+
+	if (DEBUG) console.log('DEBUG: keywords count => ', keywords.length);
+	if (DEBUG) console.log('DEBUG: proxies count => ', proxies.length);
+	if (DEBUG) console.log('DEBUG: config => ', config);
+	if (DEBUG) console.log('DEBUG: selected_scrap_rules => ', selected_scrap_rules);
+
+
+
+	var batch = new Batch(keywords, proxies, config);
+	batch.setConfig(config);
+	batch.setSearchParams(gg_params);
+	batch.setScrapRules(selected_scrap_rules);
+	batch.run();
+
 }
 
 
-// Handle proxy file
-if (batch_config.proxy_file) {
-	if (curl_config.verbose) {
-		console.error('Using proxy file : ' + batch_config.proxy_file);
-	}
 
-	if (FsExistsSync(batch_config.proxy_file)) {
-		//console.error('Reading file://' + batch_config.proxy_file);
-		var proxy_contents = fs.readFileSync(batch_config.proxy_file).toString();
-		var lines = proxy_contents.split("\n");
-		var nb_lines = lines.length;
-		var proxy = "";
-		var nb_try = 0;
-		while (proxy == "") {
-			proxy = lines[ Math.floor((Math.random()*nb_lines)) ];
-			if (nb_try++ >= 10) {
-				console.error("Cannot parse proxy file");
-				process.exit(0);
+/* ################################################################### */
+
+
+function Batch(keywords, proxies, config) {
+	if (DEBUG) console.log('new Batch');
+	this.keywords             = keywords
+	this.proxies              = proxies;
+	this.config               = config || { curl: {}, batch:{}, display:{} };
+	this.gg_params            = {};
+	this.active_threads       = 0;
+	this.selected_scrap_rules = [];
+}
+
+Batch.prototype = {
+	setConfig: function (config) {
+		this.config = config;
+	},
+
+	setSearchParams: function (gg_params) {
+		this.gg_params = gg_params;
+	},
+
+	setScrapRules: function (selected_scrap_rules) {
+		this.selected_scrap_rules = selected_scrap_rules;
+	},
+
+	run: function () {
+		if (DEBUG) console.log('Batch.run');
+		for (var i=0; i<this.config.batch.threads; i++) {
+			this.runNext();
+		}
+	},
+
+	runNext: function () {
+		if (DEBUG) console.log('Batch.runNext');
+		this.active_threads++;
+
+		// Choose one keyword
+		var keyword = this.keywords.shift();
+		
+		if (! keyword) {
+			
+			// end of keywords list
+			this.active_threads--;
+			if (this.active_threads === 0) {
+				// Batch completed
+				return this.batchComplete();
+			}
+			return;	// waiting for others threads'end
+		}
+
+
+		// Choose one proxy
+		var proxy = null;
+		if (this.proxies.length) {
+			var nb_proxies = this.proxies.length;
+			proxy = this.proxies[ Math.floor((Math.random()*nb_proxies)) ];
+		}
+
+
+		var _batch = this;
+		var keyword_run = new KeywordRun(keyword, proxy);
+		keyword_run.setConfig(this.config);
+		keyword_run.setSearchParams(this.gg_params);
+		keyword_run.setScrapRules(this.selected_scrap_rules);
+		//keyword_run.onComplete = this.runNext;
+		keyword_run.onComplete = function () {return _batch.runNext.apply(_batch, arguments);}
+		keyword_run.run(this.run);
+
+	},
+
+	batchComplete: function () {
+		if (DEBUG) console.log('Batch.batchComplete');
+	}
+};
+
+
+/* ################################################################### */
+
+
+function KeywordRun(keyword, proxy) {
+	if (DEBUG) console.log('new KeywordRun');
+
+	this.keyword              = keyword;
+	this.proxy                = proxy;
+	this.config               = {};
+	this.selected_scrap_rules = [];
+	this.onComplete           = function () {};
+}
+
+KeywordRun.prototype = {
+	setConfig: function (config) {
+		this.config = config;
+	},
+
+	setSearchParams: function (gg_params) {
+		this.gg_params = gg_params;
+	},
+
+	setScrapRules: function (selected_scrap_rules) {
+		this.selected_scrap_rules = selected_scrap_rules;
+	},
+
+	run: function () {
+		if (DEBUG) console.log('KeywordRun.run');
+		this.fetch();
+	},
+
+	fetch: function () {
+		var _keyword_run = this;
+
+		if (DEBUG) console.log('KeywordRun.fetch');
+		var page_url = getGoogleWebSearchUrl(this.gg_params, this.keyword);
+		var options  = getCurlOptionsFromUrl(page_url, this.config.curl, this.proxy);
+
+		var url_md5    = crypto.createHash('md5').update(page_url).digest("hex");
+		var cache_file = '/tmp/serp_gg_' + url_md5 + '.html';
+
+		//if (curl_config.verbose) {
+			if (DEBUG) console.error('Remote URL: ' + page_url);
+		//}
+
+		var html = '';
+		if (this.config.curl.use_cache) {
+			// Read content from local cache
+			if (FsExistsSync(cache_file)) {
+				//if (this.config.curl.verbose) {
+					if (DEBUG) console.error('Reading cache: file://' + cache_file);
+				//}
+				html = fs.readFileSync(cache_file).toString();
+				return this.parse(html);
 			}
 		}
-		curl_config.proxy = proxy;
-	}else{
-		console.error('Invalid proxy file');
-		process.exit(0);
+
+
+		// Get remote page
+		http.get(options, function(res) {
+			res.on('data', function(data) {
+				html += data;
+			}).on('end', function() {
+				if ( _keyword_run.config.curl.use_cache) {
+					// Write local cache
+					fs.writeFile(cache_file, '<!-- ORIGIN_URL: ' + page_url + ' -->' + html, function (err) {
+						//if (_keyword_run.config.curl.verbose) {
+							if (DEBUG) console.error('Writing cache: file://' + cache_file);
+						//}
+						if (err) throw err;
+					});
+				}
+				// Execute callback function
+				_keyword_run.parse(html);
+			});
+		});
+	},
+
+	parse: function (html) {
+		var _keyword_run = this;
+
+		if (DEBUG) console.log('DEBUG: parsePageContent => ', html.length, ' bytes to parse');
+
+		var jquery_path = 'jquery-1.4.2.min.js';
+		if (! FsExistsSync(jquery_path)) {
+			jquery_path = 'http://code.jquery.com/jquery-1.4.2.min.js';
+		}
+
+		var window = jsdom.jsdom(html).createWindow();
+		jsdom.jQueryify(window, 'jquery-1.4.2.min.js', function() {
+
+			var $ = window.$;
+
+			if (DEBUG) console.log('jQueryifyied');
+
+			var $html          = $(html);
+			var display_buffer = [];
+
+			// FOR EACH RULE (SEARCH, ADS, ...)
+
+			for (var i=0, l=_keyword_run.selected_scrap_rules.length; i<l; i++) {	// for each first level rule...
+				var rule_name = _keyword_run.selected_scrap_rules[i];
+				var rule_placements;
+
+				if (rule_name.indexOf('.') === -1) {
+					// Take all the rule
+					rule_placements = all_scrap_rules[rule_name];
+
+				}else{
+					// Take a sub type of rule
+					var parts                                = rule_name.split('.');
+					rule_name                                = parts[0];
+					var tmp_rule_placement_name              = parts[1];
+					rule_placements                          = {};
+					rule_placements[tmp_rule_placement_name] = all_scrap_rules[rule_name][tmp_rule_placement_name];
+				}
+
+				// FOR EACH PLACEMENT OF THE RULE
+				var rule_placements_names = Object.keys(rule_placements);
+				for (var j=0, m=rule_placements_names.length; j<m; j++) {	// for each second level rule...
+					var rule_placement_name = rule_placements_names[j];
+					var rule_placement      = rule_placements[rule_placement_name];
+					var jpaths              = rule_placement['jpaths'];
+					var jpath               = jpaths.join(',');
+					var pattern_results     = $html.find(jpath);
+					var nb_results          = pattern_results.length;
+					if (nb_results === 0) {
+						continue;
+					}
+					if (DEBUG) console.log(rule_name + ' -> ' + rule_placement_name + ' -> ' + nb_results);
+
+					pattern_results.each(function (n, item) {
+						var tmp_buffer = parseResultItemGoogle(n, item, rule_name, rule_placement_name, $);
+						if (tmp_buffer) {
+							for (var i=0, l=tmp_buffer.length; i<l; i++) {
+								display_buffer.push(tmp_buffer[i]);
+							}
+						}
+					});
+
+				}
+			}
+
+
+			displayResults(display_buffer);
+
+			if (typeof(_keyword_run.onComplete) == 'function') {
+				//console.log('NEXT ??');
+				_keyword_run.onComplete();
+			}else{
+				console.log('BYE BYE');
+				process.exit(0);	// is not implicit on Windows
+			}
+
+			
+		});
+
+
+
+
+
+		function parseResultItemGoogle(n, item, result_type_name, result_type_placement_name, $) {
+			//console.log('parseResultItemGoogle');
+
+			var $item         = $(item);
+			var item_tag_name = item.tagName;
+			var item_infos    = parseResultItemInfosGoogle(result_type_name, result_type_placement_name, $item);
+			var link_anchor   = $item.text();
+
+			if (item_infos === false || item_infos.length === 0) {
+				return;
+			}
+
+
+			// Display result
+			var display_tmp_buffer = [];
+			var position           = n+1;
+			var item_buffer        = [];
+
+			// column "placement"
+			item_buffer.push(result_type_name + '.' + result_type_placement_name);
+
+			// column "keyword"
+			if (_keyword_run.config.display.show_keyword) {
+				item_buffer.push(_keyword_run.keyword);
+			}
+
+			// column "proxy"
+			if (_keyword_run.config.display.show_proxy) {
+				item_buffer.push(_keyword_run.proxy);
+			}
+
+			// column "position"
+			item_buffer.push(position);
+
+			// column "link"
+			item_buffer.push(item_infos[0]);
+
+			// column "domain"
+			if (_keyword_run.config.display.show_domain) {
+				var link   = item_infos[0] + '';
+				var parts  = link.split('/');
+				var domain = (parts[2] === undefined) ? '' : parts[2];
+				item_buffer.push(domain);
+			}
+
+			// column "title"
+			if (_keyword_run.config.display.show_title) {
+				item_buffer.push(item_infos[1]);
+			}
+
+			display_tmp_buffer.push(item_buffer.join("\t"));
+
+
+			if (result_type_name == 'search' && result_type_placement_name == 'main') {
+				// Sitelinks
+				var $div_sitelinks = $item.closest('li.g').find('>table div.vsc>span.tl>h3.r>a');
+
+				$div_sitelinks.each(function (n, sitelink) {
+					var $sitelink     = $(sitelink);
+					var sitelink_url  = $(sitelink).attr('href');
+					var sitelink_text = $(sitelink).text();
+					var sitelink_url  = "[SITELINK] " + sitelink_url;
+					var item_buffer   = [];
+
+					// column "placement"
+					item_buffer.push(result_type_name + '.' + result_type_placement_name);
+
+
+					// column "keyword"
+					if (_keyword_run.config.display.show_keyword) {
+						item_buffer.push(_keyword_run.keyword);
+					}
+
+					// column "position"
+					item_buffer.push(position + '-' + (n+1));
+
+					// column "link"
+					item_buffer.push(sitelink_url);
+
+					// column "domain"
+					if (_keyword_run.config.display.show_domain) {
+						item_buffer.push(domain);
+					}
+
+					// column "title"
+					if (_keyword_run.config.display.show_title) {
+						item_buffer.push(sitelink_text);
+					}
+
+					display_tmp_buffer.push(item_buffer.join("\t"));
+				});
+			}
+
+			return display_tmp_buffer;
+		}
+
+		function parseResultItemInfosGoogle(result_type_name, result_type_placement_name, $item) {
+			//console.log('parseResultItemInfosGoogle');
+
+			var univ_search_patterns = {
+				'images'	: '&tbm=isch&',
+				'news'		: '&tbm=nws&',
+				'videos'	: '&tbm=vid&',
+				'maps'		: '/maps?',
+				'products'	: '&tbm=shop&',
+				'books'		: '&tbm=bks&',
+				'places'	: '&tbm=plcs&'
+			};
+
+			var item_text = $item.text();
+			var item_url  = $item.attr('href');
+			var _url      = (item_url === undefined) ? null : url.parse(item_url, true);
+
+
+			function getUniversalSearchType(item_url) {
+				//console.log('getUniversalSearchType');
+				var univ_search_type = 'unknown';
+
+				var univ_search_names = Object.keys(univ_search_patterns);
+				for (var i=0, l=univ_search_names.length; i<l; i++) {
+					var univ_search_name = univ_search_names[i];
+					if (item_url.indexOf(univ_search_patterns[univ_search_name]) > -1) {
+						univ_search_type = univ_search_name;
+						break;
+					}
+				}
+
+				return univ_search_type;
+			}
+
+			if (result_type_name == 'search') {
+				// natural result
+				var extra_data = $item.closest('div.vsc').attr('data-extra');
+
+				if (result_type_placement_name == 'count') {
+					// result count
+					var item_tmp = item_text;
+					item_tmp     = item_tmp.split('(')[0];
+					item_tmp     = item_tmp.split('（')[0];		//  special char => （ ==> %EF%BC%88 (used for example by google.co.jp)
+					item_tmp     = item_tmp.replace(/[^0-9]/g, "");
+					var item_int = parseInt(item_tmp, 10);
+					return [item_int, item_text];
+
+				}else if (item_url.indexOf('/search') === 0) {
+					// universal search
+					var univ_search_type = getUniversalSearchType(item_url);
+					return ["[UNIVERSAL SEARCH " + univ_search_type + "]", item_text];
+
+				}else if (item_url.indexOf('/url') === 0) {
+					if (_url.query.url !== undefined) {
+						// onebox	// ex: manchester united (1st result)
+						return ["[ONEBOX search] " + _url.query.url, item_text];
+					}
+
+				}else if (extra_data !== '') {
+					if (result_type_placement_name == 'onebox') {
+						//return false;	// ok for 'arsenal' but not for 'billet avion agadir'
+					}
+
+					// universal search places
+					return ["[UNIVERSAL SEARCH PLACES] " + item_url, item_text];
+
+				}
+
+			}else if (result_type_name == 'stuff') {
+				if (result_type_placement_name == 'album_search_bottom' && item_url.indexOf('/search') === 0) {
+					// album_search
+					return [item_text, item_text];
+
+				}else if (result_type_placement_name == 'maps_right') {
+					// onebox maps
+					return ['[ONEBOX RIGHT MAPS]', item_text];
+
+				}else if (result_type_placement_name == 'related_bottom' && item_url.indexOf('/search') === 0) {
+					// recherche associee
+					return [item_text, item_text];
+
+				}else if (result_type_placement_name == 'top' && item_url.indexOf('/movies') === 0) {
+					return ["[ONEBOX CINEMA]", item_text];
+
+				}else if (result_type_placement_name == 'top' && item_url.indexOf('/url') === 0) {
+					// onebox // ex: ILD
+					if (_url.query.url === undefined) {
+						return ["[ONEBOX stuff] " + _url.query.q, item_text];
+					}
+				}else if (item_url === '') {
+					return [item_text, item_text];	// ex: pi
+				}
+
+			}else if (result_type_name === 'ads') {
+				if (item_url.indexOf('/aclk?') === 0) {
+					// ads
+					return [_url.query.adurl, item_text];
+				}
+
+			}
+
+			return [item_url, item_text];
+		}
+
+
+		function displayResults(display_buffer) {
+			console.log(display_buffer.join("\n"));
+		}
+
+
+		
 	}
+};
 
-}
-
-
-
-// Handle batch file
-// TODO
-
-
-if (keywords.length == 0) {
-	usage();
-}
-
-
-function runNextKeyword() {
-	var kw = keywords.shift();
-	if !(kw) {
-		// end of keywords list
-		return;
-	}
-
-
-	// Process google query
-	var gg_url = getGoogleWebSearchUrl(gg_params.tld, gg_params.hl, kw, gg_params.start, gg_params.num, gg_params.nofilter, gg_params.safe);
-
-	if (gg_params.simulate) {
-		console.log(gg_url);
-		process.exit(0);
-	}
-
-	// Parse google result content
-	getPageContent(gg_url, curl_config, function (content) {
-		parsePageContent(content, result_types, selected_result_types, parseResultItemGoogle);
-	});
-}
-
-
-runNextKeyword();
-
-return;
-
-
-/* ####################### */
-
-function usage(rc) {
-
-	var usage = [
-		'NodeJS Google search - version 0.1',
-		'',
-		'Usage: $ node ' + path.basename(process.argv[1]) + ' [<options>] <keyword>',
-		'',
-		'  Placement options :',
-		'	-all			: display all (search+count+ads+stuff)			',
-		'	-search			: display search results (natural + onebox + count)',
-		'	-search.natural		: display search results 				default display mode',
-		'	-search.count | -count 	: display results count',
-		'	-ads			: display ads results 					',
-		'	-ads.top		: display ads results (only top results)',
-		'	-ads.right		: display ads results (only right results)',
-		'	-stuff			: display other stuff results',
-		'	-stuff.related_bottom	: display suggestions',
-		'',
-		'  Columns options :',
-		'	-title			: display links title 					default: not displayed',
-		'	-kw			: display request keyword 				default: not displayed',
-		'	-domain			: display links domain 					default: not displayed',
-		'',
-		'  Google options :',
-		'	-nofilter		: disable duplicate filter search 			default: filter activated',
-		'	-num <int>		: nb of results 					default: 10',
-		'	-start <int>		: results start offset 					default: 0',
-		'	-tld <string>		: google country extension 				default: fr',
-		'	-hl | -lang <string>	: google language parameter 		 		default: fr',
-		'	-safe <string>		: change safe level (off,moderate,strict)		default: moderate',
-		'',
-		'  Connection options :',
-		'	-cache			: use local fs cache 					default: no cache',
-		'	-agent <string>		: change user agent 					default: see in code...',
-		'	-proxy <string>		: use proxy 		(format: "hostname:port" or "user:password@hostname:port")',
-		'	-proxyfile <string>	: use proxy file 	(file format: one proxy per line)',
-		'',
-		' Batch mode :',
-		'	-batchfile <string>	: keywords file 	(file format: one keyword per line)',
-		'',
-		'  Misc options :',
-		'	-q | -quiet		: disable notice messages				default: false',
-		'	-types			: display placements types (and quit)',
-		'	-fake			: display google url (and quit)',
-		'	-h | -help		: display this message				',
-	];
-	console.log(usage.join("\n"));
-
-	process.exit(rc);
-}
-
-/* ####################### */
+/* ################################################################### */
 
 
 
 
-function parseArguments(arguments) {
-	for (var i=0, l=arguments.length; i<l; i++) {
-		var arg0 = arguments[i];
+
+function parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scrap_rules, selected_scrap_rules) {
+	for (var i=0, l=cmd_args.length; i<l; i++) {
+		var arg0 = cmd_args[i];
 		var arg0_short	= arg0.split('.')[0];
 		var arg0_option	= (arg0.length <= 1) ? null : arg0.split('.')[1];
-		var arg1 = (l>i+1) ? arguments[i+1] : null;
+		var arg1 = (l>i+1) ? cmd_args[i+1] : null;
 
 		switch (arg0_short) {
 			case '-fake':
 			case '-simulate':
-				gg_params.simulate = true;
+				config.curl.simulate = true;
 				break;
 			case '-h':
 			case '-help':
@@ -197,47 +578,50 @@ function parseArguments(arguments) {
 				break;
 			case '-q':
 			case '-quiet':
-				curl_config.verbose = false;
+				config.curl.verbose = false;
 				break;
 			case '-types':
-				for (key in result_types) {
-					if (result_types.hasOwnProperty(key)) {
-						var sub_result_types = result_types[key];
-						var buffer = [];
-						for (sub_key in sub_result_types) {
-							buffer[buffer.length] = sub_key;
-						}
-						console.log(' -' + key + " => " + buffer.join(' '));
+				var rules_names = Object.keys(all_scrap_rules);
+				for (var n=0, m=rules_names.length; n<m; n++) {	// for each first level rule...
+					var rule_name           = rules_names[n];
+					var sub_all_scrap_rules = all_scrap_rules[rule_name];
+					var buffer              = [];
+					var sub_rules_names     = Object.keys(sub_all_scrap_rules);
+					for (var j=0, k=sub_rules_names.length; j<k; j++) {	// for each second level rule...
+						var sub_rule_name = sub_rules_names[j];
+						buffer.push(sub_rule_name);
 					}
+					console.log(' -' + rule_name + " => " + buffer.join(' '));
 				}
 				process.exit(0);
 				break;
 			case '-all':
-				selected_result_types = ['search', 'ads', 'stuff'];
+				selected_scrap_rules = ['search', 'ads', 'stuff'];
 				break;
 			case '-search':
 			case '-ads':
 			case '-stuff':
 				if (arg0_option) {
-					selected_result_types.push(arg0.substr(1));
+					selected_scrap_rules.push(arg0.substr(1));
 				}else{
-					selected_result_types.push(arg0_short.substr(1));
+					selected_scrap_rules.push(arg0_short.substr(1));
 				}
 				break;
 			case '-cache':
-				curl_config.use_cache = true;
+				config.curl.use_cache = true;
 				break;
 			case '-title':
-				gg_params.show_title = true;
+				config.display.show_title = true;
 				break;
 			case '-domain':
-				gg_params.show_domain = true;
+				config.display.show_domain = true;
 				break;
 			case '-kw':
-				gg_params.show_keyword = true;
+			case '-keyword':
+				config.display.show_keyword = true;
 				break;
 			case '-count':
-				selected_result_types.push('search.count');
+				selected_scrap_rules.push('search.count');
 				break;
 			case '-nofilter':
 				gg_params.nofilter = true;
@@ -268,26 +652,39 @@ function parseArguments(arguments) {
 				i++;
 				break;
 			case '-agent':
-				curl_config.agent = arg1;
+				config.curl.agent = arg1;
 				i++;
 				break;
 			case '-proxy':
-				curl_config.proxy = arg1;
+				proxies = [arg1];
 				i++;
 				break;
 			case '-proxyfile':
-				batch_config.proxy_file = arg1;
+				config.batch.proxy_file = arg1;
 				i++;
 				break;
 			case '-batchfile':
-				batch_config.batch_file = arg1;
+				config.batch.batch_file     = arg1;
+				config.display.show_proxy   = true;
+				config.display.show_keyword = true;
 				i++;
 				break;
+			case '-tbs':
+			case '-date':
+				gg_params.tbs = arg1;
+				i++;
+				// TODO
+				// &tbs=qdr:h
+				// &tbs=qdr:d
+				// &tbs=qdr:w
+				// &tbs=qdr:m
+				// &tbs=qdr:y
+				break;
 			default:
-				if (gg_params.keyword == '' && arg0.indexOf('-') !== 0) {
-					gg_params.keyword = arg0;
-				}else if (gg_params.keyword != '') {
-					gg_params.keyword += ' ' + arg0;
+				if (keywords.length === 0 && arg0.indexOf('-') !== 0) {
+					keywords.push(arg0);
+				}else if (keywords.length == 1) {
+					keywords[0] += ' ' + arg0;
 				}else{
 					console.error('invalid parameter: ' + arg0);
 				}
@@ -298,416 +695,159 @@ function parseArguments(arguments) {
 
 
 
-function getCurlOptionsFromUrl(curl_url, curl_config) {
+function getGoogleWebSearchUrl(gg_params, keyword) {
+	// tld, hl, q, start, num, nofilter, safe
 
-	var proxy_config 	= {};
-	var parts 			= curl_config.proxy.split('@');
-	var proxy_host_port = parts[parts.length-1];
-	var proxy			= proxy_host_port.split(':');
-	var proxy_auth		= (parts.length > 1) ? ('Basic ' + new Buffer(parts[0]).toString('base64')) : '';
+	var gg_url = "http://www.google." + gg_params.tld + '/search';
+	gg_url += '?hl=' + gg_params.hl;
+	gg_url += '&q=' + encodeURIComponent(keyword);
+	if (gg_params.num !== undefined && !isNaN(gg_params.num))		gg_url += '&complete=0&num=' + gg_params.num;
+	if (gg_params.start !== undefined && !isNaN(gg_params.start))	gg_url += '&start=' + gg_params.start;
+	if (gg_params.nofilter)											gg_url += '&filter=0';
+	if (gg_params.safe !== '')										gg_url += '&safe=' + gg_params.safe;
+	if (gg_params.tbs !== null)										gg_url += '&tbs=qdr:' + gg_params.tbs;
 
-	var http_auth		= '';	// TODO if needed...
+	return gg_url;
+}
 
-	if (proxy_host_port !== "") {
-		if (curl_config.verbose) {
-			console.error('Using proxy : ' + proxy_host_port);
+
+
+function getCurlOptionsFromUrl(curl_url, curl_config, proxy) {
+
+	var _url       = url.parse(curl_url);
+	var http_auth  = '';	// TODO if needed...
+	var proxy_auth = '';
+
+	if (proxy) {
+		var parts           = proxy.split('@');
+		var proxy_host_port = parts[parts.length-1];
+		var proxy_array     = proxy_host_port.split(':');
+
+		if (proxy_array !== undefined && proxy_array.length === 2) {
+			// Use proxy
+			if (curl_config.verbose) {
+				console.error('Using proxy : ' + proxy_host_port);
+			}
+			_url = {
+				host		: proxy_array[0],
+				port		: proxy_array[1],
+				pathname	: curl_url,
+				search		: ''
+			};
+			proxy_auth = (parts.length > 1) ? ('Basic ' + new Buffer(parts[0]).toString('base64')) : '';
 		}
 	}
 
-	if (proxy != undefined && proxy.length == 2) {
-		// Use proxy
-		var _url 		= {};
-		_url.host 		= proxy[0];
-		_url.port 		= proxy[1];
-		_url.pathname 	= curl_url;
-		_url.search 	= '';
-
-	}else{
-		// Direct connection
-		var _url 		= url.parse(curl_url);
-
-	}
 
 	var options = {
-	    host: _url.host,
-	    port: _url.port || 80,
-	    path: _url.pathname + (_url.search === undefined ? '' : _url.search),
-	    headers: {
-	      "User-Agent"			: curl_config.agent,
-		  "Proxy-Authorization"	: proxy_auth,
-		  "Authorization"		: http_auth,
-	    },
+		host: _url.host,
+		port: _url.port || 80,
+		path: _url.pathname + (_url.search === undefined ? '' : _url.search),
+		headers: {
+			"User-Agent"			: curl_config.agent,
+			"Proxy-Authorization"	: proxy_auth,
+			"Authorization"			: http_auth
+		}
 	};
 
 	return options;
 }
 
 
-function getPageContent(page_url, curl_config, callback) {
-	var options = getCurlOptionsFromUrl(page_url, curl_config);
-
-	//var page_url 		= 'http://' + options.host + options.path;
-	var url_md5 	= crypto.createHash('md5').update(page_url).digest("hex");
-	var cache_file 	= '/tmp/serp_gg_' + url_md5 + '.html';
-
-	if (curl_config.verbose) {
-		console.error('Remote URL: ' + page_url);
-	}
-
-	if (curl_config.use_cache) {
-		// Read content from local cache
-		if (FsExistsSync(cache_file)) {
-			if (curl_config.verbose) {
-				console.error('Reading cache: file://' + cache_file);
-			}
-			var html = fs.readFileSync(cache_file).toString();
-			return callback(html);
-		}
-	}
-
-	// Get remote page
-	var html = '';
-	http.get(options, function(res) {
-		res.on('data', function(data) {
-			html += data;
-		}).on('end', function() {
-			if ( curl_config.use_cache) {
-				// Write local cache
-				fs.writeFile(cache_file, '<!-- ORIGIN_URL: ' + page_url + ' -->' + html, function (err) {
-					if (curl_config.verbose) {
-						console.error('Writing cache: file://' + cache_file);
-					}
-					if (err) throw err;
-				});
-			}
-			// Execute callback function
-			callback(html);
-		});
-	});
-
-}
-
-
-
-function parsePageContent(html, result_types, selected_result_types, callback) {
-
-
-	{
-
-
-		var $html 			= $(html);
-		var display_buffer 	= [];
-
-		// FOR EACH RESULT_TYPE (SEARCH, ADS, ...)
-		var result_type_name;
-		for (var i=0, l=selected_result_types.length; i<l; i++) {
-			var result_type_name = selected_result_types[i];
-
-			if (result_type_name.indexOf('.') === -1) {
-				// Take all the result_type
-				var result_type_placements = result_types[result_type_name];
-			}else{
-				// Take a sub type of result_type
-				var parts = result_type_name.split('.');
-				var result_type_name = parts[0];
-				var result_type_placement_name = parts[1];
-				var result_type_placements = {};
-				result_type_placements[result_type_placement_name] = result_types[result_type_name][result_type_placement_name];
-			}
-
-			// FOR EACH PLACEMENT OF THE RESULT_TYPE
-			for (result_type_placement_name in result_type_placements) {
-				var result_type_placement = result_type_placements[result_type_placement_name];
-				var jpaths = result_type_placement['jpaths'];
-				var jpath  = jpaths.join(',');
-
-				var pattern_results = $html.find(jpath);
-				var nb_results 		= pattern_results.length;
-				if (nb_results == 0) {
-					continue;
-				}
-				//console.log(result_type_name + ' -> ' + result_type_placement_name + ' -> ' + nb_results);
-
-				pattern_results.each(function (n, item) {
-					var tmp_buffer = callback(n, item, result_type_name, result_type_placement_name);
-					if (tmp_buffer) {
-						for (var i=0, l=tmp_buffer.length; i<l; i++) {
-							display_buffer.push(tmp_buffer[i]);
-						}
-					}
-				});
-			}
-		}
-
-		displayResults(display_buffer);
-		process.exit(0);	// is not implicit on Windows
-	}
-
-}
-
-/* ####################### SPECIFIC GOOGLE ## */
-
-
-function getGoogleWebSearchUrl(tld, hl, q, start, num, nofilter, safe) {
-	var gg_url = "http://www.google." + tld + '/search';
-	gg_url += '?hl=' + hl;
-	gg_url += '&q=' + encodeURIComponent(q);
-	if (num !== undefined && !isNaN(num))		gg_url += '&complete=0&num=' + num;
-	if (start !== undefined && !isNaN(start))	gg_url += '&start=' + start;
-	if (nofilter)								gg_url += '&filter=0';
-	if (safe != '')								gg_url += '&safe=' + safe;
-
-	return gg_url;
-}
-
-
-function parseResultItemGoogle(n, item, result_type_name, result_type_placement_name) {
-
-	var $item 			= $(item);
-	var item_tag_name	= item.tagName;
-	var item_infos		= parseResultItemInfosGoogle(result_type_name, result_type_placement_name, $item);
-	var link_anchor		= $item.text();
-
-	if (item_infos === false || item_infos.length == 0) {
-		return;
-	}
-
-
-	// Display result
-	var display_tmp_buffer = [];
-
-	var position = n+1;
-	var item_buffer = [];
-
-	// column "placement"
-	item_buffer.push(result_type_name + '.' + result_type_placement_name);
-
-	// column "keyword"
-	if (gg_params.show_keyword) {
-		item_buffer.push(gg_params.keyword);
-	}
-
-	// column "position"
-	item_buffer.push(position);
-	/*
-	for (var i=0, l=item_infos.length; i<l; i++) {
-		item_buffer.push(item_infos[i]);
-		if (! gg_params.show_title) {
-			break;
-		}
-	}
-	*/
-
-	// column "link"
-	item_buffer.push(item_infos[0]);
-
-	// column "domain"
-	if (gg_params.show_domain) {
-		var link	= item_infos[0] + '';
-		var parts 	= link.split('/');
-		var domain 	= (parts[2] === undefined) ? '' : parts[2];
-		item_buffer.push(domain);
-	}
-
-	// column "title"
-	if (gg_params.show_title) {
-		item_buffer.push(item_infos[1]);
-	}
-
-	display_tmp_buffer.push(item_buffer.join("\t"));
-
-
-	if (result_type_name == 'search' && result_type_placement_name == 'main') {
-		// Sitelinks
-		var $div_sitelinks = $item.closest('li.g').find('>table div.vsc>span.tl>h3.r>a');
-
-		$div_sitelinks.each(function (n, sitelink) {
-			var $sitelink = $(sitelink);
-			var sitelink_url = $(sitelink).attr('href');
-			var sitelink_text = $(sitelink).text();
-			var sitelink_url = "[SITELINK] " + sitelink_url;
-
-			var item_buffer = [];
-
-			// column "placement"
-			item_buffer.push(result_type_name + '.' + result_type_placement_name);
-
-
-			// column "keyword"
-			if (gg_params.show_keyword) {
-				item_buffer.push(gg_params.keyword);
-			}
-
-			// column "position"
-			item_buffer.push(position + '-' + (n+1));
-
-			// column "link"
-			item_buffer.push(sitelink_url);
-
-			// column "domain"
-			if (gg_params.show_domain) {
-				item_buffer.push(domain);
-			}
-
-			// column "title"
-			if (gg_params.show_title) {
-				item_buffer.push(sitelink_text);
-			}
-
-			display_tmp_buffer.push(item_buffer.join("\t"));
-		});
-	}
-
-	return display_tmp_buffer;
-}
-
-function parseResultItemInfosGoogle(result_type_name, result_type_placement_name, $item) {
-
-	var univ_search_patterns = {
-		'images'	: '&tbm=isch&',
-		'news'		: '&tbm=nws&',
-		'videos'	: '&tbm=vid&',
-		'maps'		: '/maps?',
-		'products'	: '&tbm=shop&',
-		'books'		: '&tbm=bks&',
-		'places'	: '&tbm=plcs&',
-	};
-
-	var item_text 		= $item.text();
-	var item_url 		= $item.attr('href');
-	var _url 			= (item_url === undefined) ? null : url.parse(item_url, true);
-
-
-	function getUniversalSearchType(item_url) {
-		var univ_search_type = 'unknown';
-		for (univ_search_name in univ_search_patterns) {
-			if (item_url.indexOf(univ_search_patterns[univ_search_name]) > -1) {
-				univ_search_type = univ_search_name;
-				break;
-			}
-		}
-		return univ_search_type;
-	}
-
-	if (result_type_name == 'search') {
-		// natural result
-		var extra_data = $item.closest('div.vsc').attr('data-extra');
-
-		if (result_type_placement_name == 'count') {
-			// result count
-			var item_tmp = item_text;
-			item_tmp = item_tmp.split('(')[0];
-			item_tmp = item_tmp.split('（')[0];		//  special char => （ ==> %EF%BC%88 (used for example by google.co.jp)
-			item_tmp = item_tmp.replace(/[^0-9]/g, "");
-			var item_int = parseInt(item_tmp);
-			return [item_int, item_text];
-
-		}else if (item_url.indexOf('/search') === 0) {
-			// universal search
-			var univ_search_type = getUniversalSearchType(item_url);
-			return ["[UNIVERSAL SEARCH " + univ_search_type + "]", item_text];
-
-		}else if (item_url.indexOf('/url') === 0) {
-			if (_url.query.url !== undefined) {
-				// onebox	// ex: manchester united (1st result)
-				return ["[ONEBOX search] " + _url.query.url, item_text];
-			}
-
-		}else if (extra_data != '') {
-			if (result_type_placement_name == 'onebox') {
-				//return false;	// ok for 'arsenal' but not for 'billet avion agadir'
-			}
-
-			// universal search places
-			return ["[UNIVERSAL SEARCH PLACES] " + item_url, item_text];
-
-		}
-
-	}else if (result_type_name == 'stuff') {
-		if (result_type_placement_name == 'album_search_bottom' && item_url.indexOf('/search') === 0) {
-			// album_search
-			return [item_text, item_text];
-
-		}else if (result_type_placement_name == 'maps_right') {
-			// onebox maps
-			return ['[ONEBOX RIGHT MAPS]', item_text];
-
-		}else if (result_type_placement_name == 'related_bottom' && item_url.indexOf('/search') === 0) {
-			// recherche associee
-			return [item_text, item_text];
-
-		}else if (result_type_placement_name == 'top' && item_url.indexOf('/movies') === 0) {
-			return ["[ONEBOX CINEMA]", item_text];
-
-		}else if (result_type_placement_name == 'top' && item_url.indexOf('/url') === 0) {
-			// onebox // ex: ILD
-			if (_url.query.url === undefined) {
-				return ["[ONEBOX stuff] " + _url.query.q, item_text];
-			}
-		}else if (item_url == '') {
-			return [item_text, item_text];	// ex: pi
-		}
-
-	}else if (result_type_name == 'ads') {
-		if (item_url.indexOf('/aclk?') === 0) {
-			// ads
-			return [_url.query.adurl, item_text];
-		}
-
-	}
-
-	return [item_url, item_text];
-}
-
-
-function displayResults(display_buffer) {
-	console.log(display_buffer.join("\n"));
-}
 
 function FsExistsSync() {
 	var fn = (fs.existsSync !== undefined) ? fs.existsSync : path.existsSync;
-	return fn.apply(arguments);
+	return fn.apply(null, arguments);
 }
 
-function getJpathsConfig() {
+function readProxiesFile(proxy_file) {
+	var proxies = [];
+
+	//if (config.curl.verbose) {
+		console.error('Using proxy file : ' + proxy_file);
+	//}
+
+	if (FsExistsSync(proxy_file)) {
+		//console.error('Reading file://' + proxy_file);
+		var proxy_contents = fs.readFileSync(proxy_file).toString();
+		var lines          = proxy_contents.split("\n");
+		var nb_lines       = lines.length;
+		for (var i=0; i<nb_lines; i++) {
+			if (lines[i].trim() === '') continue;
+			proxies.push(lines[i]);
+		}
+	}else{
+		console.error('Invalid proxy file');
+		process.exit(0);
+	}
+	return proxies;
+}
+
+
+function readKeywordsFile(batch_file) {
+	var keywords = [];
+
+	//if (config.curl.verbose) {
+		console.error('Using batch file : ' + batch_file);
+	//}
+
+	if (FsExistsSync(batch_file)) {
+		//console.error('Reading file://' + batch_file);
+		var kw_contents = fs.readFileSync(batch_file).toString();
+		var lines       = kw_contents.split("\n");
+		var nb_lines    = lines.length;
+		for (var i=0; i<nb_lines; i++) {
+			if (lines[i].trim() === '') continue;
+			keywords.push(lines[i]);
+		}
+	}else{
+		console.error('Invalid batch file');
+		process.exit(0);
+	}
+	return keywords;
+}
+
+
+
+function readScrapSelectors() {
 	return {
 		'search': {
 			'onebox' : {
 				'jpaths' : [
 					'div#search ol#rso li>div>div.obcontainer>div>h3.r>a',		/* onebox ex: "manchester united" */
-					'div#search ol#rso li>div>div.ibk>h3.r>a',							/* onebox maps. ex: 12 rue des plantes paris */
-					'div#search ol#rso li>div>div.obcontainer>div>h3',				/* onebox billets avion. ex: billet avion agadir */
+					'div#search ol#rso li>div>div.ibk>h3.r>a',					/* onebox maps. ex: 12 rue des plantes paris */
+					'div#search ol#rso li>div>div.obcontainer>div>h3'			/* onebox billets avion. ex: billet avion agadir */
 				]
 			},
 			'natural' : {
 				'jpaths': [
-					'div#search ol#rso li>div.vsc>h3.r>a',							/* natural results */
-					'div#search ol#rso li>h3.r>a',											/* universal search */
-					'div#search ol#rso li>div.vsc>div>table h3.r>a',			/* videos */
+					'div#search ol#rso li>div.vsc>h3.r>a',						/* natural results */
+					'div#search ol#rso li>h3.r>a',								/* universal search */
+					'div#search ol#rso li>div.vsc>div>table h3.r>a'				/* videos */
 				]
 			},
 			'count':	{
-				'jpaths'	: ['#resultStats'],
+				'jpaths'	: ['#resultStats']
 			}
 		},
 		'ads': {
 			'top': {
 				'jpaths':	[
 					/* '#tads>ol>li>h3>a', */
-					'#tads>ol li>div.vsc>h3>a',		/* ex: jupe rouge */
-				],
+					'#tads>ol li>div.vsc>h3>a'		/* ex: jupe rouge */
+				]
 			},
 			'right'	: {
 				'jpaths':	[
 					'div#rhs_block ol>li>div:nth-child(1)>div>a',		/* adwords google-product with image */
-					'div#rhs_block ol li>h3>a',							/* adwords classic */
-				],
+					'div#rhs_block ol li>h3>a'							/* adwords classic */
+				]
 			},
 			'bottom'	: {
 				'jpaths':	[
-					'#tadsb>ol li>div.vsc>h3>a',			/* ex: jupe twenga */
-				],
-			},
+					'#tadsb>ol li>div.vsc>h3>a'			/* ex: jupe twenga */
+				]
+			}
 		},
 		'stuff'	: {
 			'top'		: {
@@ -715,24 +855,32 @@ function getJpathsConfig() {
 					'#topstuff>div>div>h2.r>a',							/* bourse. ex: ILD */
 					'#search>#ires>ol>li.g div.obcontainer>div>h3.r',	/* meteo. ex: temps a paris */
 					'#topstuff>table td>h2.r',							/* maths. ex: pi */
-					'#topstuff>div.obp>div.obcontainer>div>div>a',		/* horaire de cinema. ex: projet x */
-				],
+					'#topstuff>div.obp>div.obcontainer>div>div>a'		/* horaire de cinema. ex: projet x */
+				]
 			},
 			'bottom'	: {
-				'jpaths': ['#botstuff>div>div>h2.r>a'],		/* some examples ? */
+				'jpaths': ['#botstuff>div>div>h2.r>a']					/* some examples ? */
 			},
 			"related_bottom": {
-				'jpaths': ['#botstuff>div#brs>div.brs_col>p>a'],		/* recherches associees */
+				'jpaths': ['#botstuff>div#brs>div.brs_col>p>a']			/* recherches associees */
 			},
 			"google+_right": {
-				'jpaths': ['#rhs_block table.ts div.gl>a'],			/* google+. ex: mon adresse ip */
+				'jpaths': ['#rhs_block table.ts div.gl>a']				/* google+. ex: mon adresse ip */
 			},
 			"album_search_bottom": {
-				'jpaths': ['div#search ol#rso li.g>div>div>a:nth-child(2)'],		/* albums music. ex: rihanna*/
+				'jpaths': ['div#search ol#rso li.g>div>div>a:nth-child(2)']		/* albums music. ex: rihanna*/
 			},
 			"maps_right": {
-				'jpaths': ['div#rhs_block div.rhsvw span>span>a.fl'],		/* maps, on the right column ex: reston cosmetic dentist */
-			},
-		},
+				'jpaths': ['div#rhs_block div.rhsvw span>span>a.fl']			/* maps, on the right column ex: reston cosmetic dentist */
+			}
+		}
 	};
 }
+
+
+
+/* ################################################################### */
+
+main();
+
+
