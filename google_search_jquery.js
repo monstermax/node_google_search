@@ -1,4 +1,5 @@
 
+/* Dependencies */
 var http   = require('http');
 var util   = require('util');
 var fs     = require('fs');
@@ -7,6 +8,10 @@ var crypto = require('crypto');
 var path   = require('path');
 var $      = require('jquery');
 
+console.error('DEPRECATED. use google_search.js instead');
+process.exit(1);
+
+/* Config variables */
 
 var curl_config = {
 	"agent"			: 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/535.7 (KHTML, like Gecko) Ubuntu/11.10 Chromium/16.0.912.77 Chrome/16.0.912.77 Safari/535.7',

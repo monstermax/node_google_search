@@ -8,6 +8,8 @@ var crypto = require('crypto');
 var path   = require('path');
 var jsdom  = require('jsdom');
 
+console.error('DEPRECATED. use google_search.js instead');
+process.exit(1);
 
 /* Config variables */
 
