@@ -34,10 +34,12 @@ function main() {
 			"thread_delay"	: 0
 		},
 		display: {
-			"show_title"	: false,
-			"show_domain"	: false,
-			"show_keyword"	: false,
-			"show_proxy"	: false
+			"show_title"		: false,
+			"show_domain"		: false,
+			"show_keyword"		: false,
+			"show_proxy"		: false,
+			"show_url_display"	: false,
+			"show_description"	: false
 		}
 	};
 
@@ -365,12 +367,24 @@ KeywordRun.prototype = {
 			if (item_infos === false || item_infos.length === 0) {
 				return;
 			}
-
+			
+			//console.log($item.parent().next().find('span.st').html());process.exit();
 
 			// Display result
 			var display_tmp_buffer = [];
 			var position           = n+1;
 			var item_buffer        = [];
+			var description        = '';
+			var url_display        = '';
+
+			if (result_type_name + '.' + result_type_placement_name == 'search.natural') {
+				description = $item.parent().next().find('span.st').text();
+				url_display = $item.parent().next().find('div.kv > cite').text();
+
+			}else if (result_type_name == 'ads') {
+				description = $item.parent().nextAll('span.ac').text();
+				url_display = $item.parent().nextAll().find('div.kv > cite').text();
+			}
 
 			// column "placement"
 			item_buffer.push(result_type_name + '.' + result_type_placement_name);
@@ -388,15 +402,25 @@ KeywordRun.prototype = {
 			// column "position"
 			item_buffer.push(position);
 
-			// column "link"
-			item_buffer.push(item_infos[0]);
-
 			// column "domain"
 			if (_keyword_run.config.display.show_domain) {
 				var link   = item_infos[0] + '';
 				var parts  = link.split('/');
 				var domain = (parts[2] === undefined) ? '' : parts[2];
 				item_buffer.push(domain);
+			}
+
+			// column "link"
+			item_buffer.push(item_infos[0]);
+
+			// column url_display
+			if (_keyword_run.config.display.show_url_display) {
+				item_buffer.push(url_display);
+			}
+
+			// column description
+			if (_keyword_run.config.display.show_description) {
+				item_buffer.push(description);
 			}
 
 			// column "title"
@@ -435,12 +459,22 @@ KeywordRun.prototype = {
 					// column "position"
 					item_buffer.push(position + '-' + (n+1));
 
-					// column "link"
-					item_buffer.push(sitelink_url);
-
 					// column "domain"
 					if (_keyword_run.config.display.show_domain) {
 						item_buffer.push(domain);
+					}
+
+					// column "link"
+					item_buffer.push(sitelink_url);
+
+					// column url_display
+					if (_keyword_run.config.display.show_url_display) {
+						item_buffer.push('');
+					}
+
+					// column description
+					if (_keyword_run.config.display.show_description) {
+						item_buffer.push('');
 					}
 
 					// column "title"
@@ -631,8 +665,23 @@ function parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scra
 			case '-domain':
 				config.display.show_domain = true;
 				break;
+			case '-showall':
+					config.display.show_proxy = true;
+					config.display.show_url_display = true;
+					config.display.show_description = true;
+					config.display.show_domain = true;
+					config.display.show_title = true;
+				break;
 			case '-showproxy':
 				config.display.show_proxy = true;
+				break;
+			case '-showurl':
+					config.display.show_url_display = true;
+				break;
+			case '-showdescription':
+			case '-showdesc':
+			case '-showsnippet':
+					config.display.show_description = true;
 				break;
 			case '-kw':
 			case '-keyword':
@@ -934,7 +983,10 @@ function usage(rc) {
 		'	-title			: display links title					default: not displayed',
 		'	-kw			: display request keyword				default: not displayed',
 		'	-domain			: display links domain					default: not displayed',
-		'	-showproxy			: display used proxy				default: not displayed',
+		'	-showproxy		: display used proxy					default: not displayed',
+		'	-showdesc		: display description/snippet				default: not displayed',
+		'	-showurl		: display displayed green url				default: not displayed',
+		'	-showall		: display all columns',
 		'',
 		'  Google options :',
 		'	-nofilter		: disable duplicate filter search			default: filter activated',
@@ -948,11 +1000,11 @@ function usage(rc) {
 		'  Connection options :',
 		'	-cache			: use local fs cache					default: no cache',
 		'	-agent <string>		: change user agent					default: see in code...',
-		'	-proxy <string>		: use proxy			(format: "hostname:port" or "user:password@hostname:port")',
-		'	-proxyfile <string>	: use proxy file		(file format: one proxy per line)',
+		'	-proxy <string>		: use proxy						format: "hostname:port" or "user:password@hostname:port"',
+		'	-proxyfile <string>	: use proxy file					file format: one proxy per line',
 		'',
 		' Batch mode :',
-		'	-batchfile <string>	: keywords file			(file format: one keyword per line)',
+		'	-batchfile <string>	: keywords file						file format: one keyword per line',
 		'	-threads <int>		: nb of threads						default: 1',
 		'	-delay <int>		: delay between each request (by thread) in ms.		default: 0',
 		'',
