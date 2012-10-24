@@ -21,10 +21,12 @@ function main() {
 	/* Config variables */
 
 	var config = {
+		verbose: true,
 		curl: {
 			"agent"			: 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/535.7 (KHTML, like Gecko) Ubuntu/11.10 Chromium/16.0.912.77 Chrome/16.0.912.77 Safari/535.7',
 			"proxy"			: null,
-			"use_cache"		: false
+			"use_cache"		: false,
+			"cache_dir"		: '/tmp'
 		},
 		batch: {
 			"proxy_file"	: null,
@@ -81,15 +83,19 @@ function main() {
 	if (config.batch.proxy_file) {
 		proxies = readProxiesFile(config.batch.proxy_file);
 	}
-	console.error('Using ' + proxies.length + ' proxies');
+	if (config.verbose) {
+		console.error('Using ' + proxies.length + ' proxies');
+	}
 
 
 	// Reading batch file
 	if (config.batch.batch_file) {
 		keywords = readKeywordsFile(config.batch.batch_file);
 	}
-	console.error('Running ' + keywords.length + ' keywords');
-	console.error('Running ' + config.batch.threads + ' threads');
+	if (config.verbose) {
+		console.error('Running ' + keywords.length + ' keywords');
+		console.error('Running ' + config.batch.threads + ' threads');
+	}
 
 
 	if (keywords.length === 0) {
@@ -233,22 +239,22 @@ KeywordRun.prototype = {
 
 		if (DEBUG) console.log('KeywordRun.fetch');
 		var page_url = getGoogleWebSearchUrl(this.gg_params, this.keyword);
-		var options  = getCurlOptionsFromUrl(page_url, this.config.curl, this.proxy);
+		var options  = getCurlOptionsFromUrl(page_url, this.config, this.proxy);
 
 		var url_md5    = crypto.createHash('md5').update(page_url).digest("hex");
-		var cache_file = '/tmp/serp_gg_' + url_md5 + '.html';
+		var cache_file = this.config.curl.cache_dir + '/serp_gg_' + url_md5 + '.html';
 
-		//if (curl_config.verbose) {
-			if (DEBUG) console.error('Remote URL: ' + page_url);
-		//}
+		if (this.config.verbose) {
+			console.error('Remote URL: ' + page_url);
+		}
 
 		var html = '';
 		if (this.config.curl.use_cache) {
 			// Read content from local cache
 			if (FsExistsSync(cache_file)) {
-				//if (this.config.curl.verbose) {
-					if (DEBUG) console.error('Reading cache: file://' + cache_file);
-				//}
+				if (this.config.verbose) {
+					console.error('Reading cache: file://' + cache_file);
+				}
 				html = fs.readFileSync(cache_file).toString();
 				return this.parse(html);
 			}
@@ -263,9 +269,9 @@ KeywordRun.prototype = {
 				if ( _keyword_run.config.curl.use_cache) {
 					// Write local cache
 					fs.writeFile(cache_file, '<!-- ORIGIN_URL: ' + page_url + ' -->' + html, function (err) {
-						//if (_keyword_run.config.curl.verbose) {
-							if (DEBUG) console.error('Writing cache: file://' + cache_file);
-						//}
+						if (_keyword_run.config.verbose) {
+							console.error('Writing cache: file://' + cache_file);
+						}
 						if (err) throw err;
 					});
 				}
@@ -632,7 +638,7 @@ function parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scra
 				break;
 			case '-q':
 			case '-quiet':
-				config.curl.verbose = false;
+				config.verbose = false;
 				break;
 			case '-types':
 				var rules_names = Object.keys(all_scrap_rules);
@@ -738,6 +744,10 @@ function parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scra
 				proxies = [arg1];
 				i++;
 				break;
+			case '-cachedir':
+				config.curl.cache_dir = arg1;
+				i++;
+				break;
 			case '-threads':
 				config.batch.threads = arg1;
 				i++;
@@ -800,7 +810,7 @@ function getGoogleWebSearchUrl(gg_params, keyword) {
 
 
 
-function getCurlOptionsFromUrl(curl_url, curl_config, proxy) {
+function getCurlOptionsFromUrl(curl_url, config, proxy) {
 
 	var _url       = url.parse(curl_url);
 	var http_auth  = '';	// TODO if needed...
@@ -813,7 +823,7 @@ function getCurlOptionsFromUrl(curl_url, curl_config, proxy) {
 
 		if (proxy_array !== undefined && proxy_array.length === 2) {
 			// Use proxy
-			if (curl_config.verbose) {
+			if (config.verbose) {
 				console.error('Using proxy : ' + proxy_host_port);
 			}
 			_url = {
@@ -832,7 +842,7 @@ function getCurlOptionsFromUrl(curl_url, curl_config, proxy) {
 		port: _url.port || 80,
 		path: _url.pathname + (_url.search === undefined ? '' : _url.search),
 		headers: {
-			"User-Agent"			: curl_config.agent,
+			"User-Agent"			: config.curl.agent,
 			"Proxy-Authorization"	: proxy_auth,
 			"Authorization"			: http_auth
 		}
@@ -851,9 +861,9 @@ function FsExistsSync() {
 function readProxiesFile(proxy_file) {
 	var proxies = [];
 
-	//if (config.curl.verbose) {
+	if (config.verbose) {
 		console.error('Using proxy file : ' + proxy_file);
-	//}
+	}
 
 	if (FsExistsSync(proxy_file)) {
 		//console.error('Reading file://' + proxy_file);
@@ -875,9 +885,9 @@ function readProxiesFile(proxy_file) {
 function readKeywordsFile(batch_file) {
 	var keywords = [];
 
-	//if (config.curl.verbose) {
+	if (config.verbose) {
 		console.error('Using batch file : ' + batch_file);
-	//}
+	}
 
 	if (FsExistsSync(batch_file)) {
 		//console.error('Reading file://' + batch_file);
@@ -1009,7 +1019,8 @@ function usage(rc) {
 		'',
 		'  Connection options :',
 		'	-cache			: use local fs cache					default: no cache',
-		'	-agent <string>		: change user agent					default: see in code...',
+		'	-cache_dir		: temp folder to store fetched pages			default: /tmp',
+		'	-agent <string>		: change user agent					default: Mozilla/5.0 (X11; Linux i686)...',
 		'	-proxy <string>		: use proxy						format: "hostname:port" or "user:password@hostname:port"',
 		'	-proxyfile <string>	: use proxy file					file format: one proxy per line',
 		'',
