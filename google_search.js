@@ -376,6 +376,11 @@ KeywordRun.prototype = {
 			var display_tmp_buffer = [];
 			var position           = n+1;
 			var item_buffer        = [];
+
+			var link   = item_infos[0] + '';
+			var parts  = link.split('/');
+			var domain = (parts[2] === undefined) ? '' : parts[2];
+
 			var description        = '';
 			var url_display        = '';
 
@@ -386,6 +391,7 @@ KeywordRun.prototype = {
 			}else if (result_type_name == 'ads') {
 				description = $item.parent().nextAll('span.ac').text();
 				url_display = $item.parent().nextAll().find('div.kv > cite').text();
+				domain		= url_display.split('/')[0];
 			}
 
 			// column "placement"
@@ -406,9 +412,6 @@ KeywordRun.prototype = {
 
 			// column "domain"
 			if (_keyword_run.config.display.show_domain) {
-				var link   = item_infos[0] + '';
-				var parts  = link.split('/');
-				var domain = (parts[2] === undefined) ? '' : parts[2];
 				item_buffer.push(domain);
 			}
 
@@ -676,6 +679,7 @@ function parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scra
 					config.display.show_description = true;
 					config.display.show_domain = true;
 					config.display.show_title = true;
+					config.display.show_keyword = true;
 				break;
 			case '-showproxy':
 				config.display.show_proxy = true;
