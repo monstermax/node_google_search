@@ -276,13 +276,13 @@ KeywordRun.prototype = {
 
 		if (DEBUG) console.log('DEBUG: parsePageContent => ', html.length, ' bytes to parse');
 
-		var jquery_path = 'jquery-1.4.2.min.js';
+		var jquery_path = 'js_modules/jquery-1.4.2.min.js';
 		if (! FsExistsSync(jquery_path)) {
 			jquery_path = 'http://code.jquery.com/jquery-1.4.2.min.js';
 		}
 
 		var window = jsdom.jsdom(html).createWindow();
-		jsdom.jQueryify(window, 'jquery-1.4.2.min.js', function() {
+		jsdom.jQueryify(window, jquery_path, function() {
 
 			var $ = window.$;
 
