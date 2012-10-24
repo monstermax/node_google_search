@@ -69,6 +69,8 @@ function main() {
 
 	// Default mode (display all placements)
 	if (selected_scrap_rules.length === 0) {
+		//console.log('Error: no placement selected !');
+		//process.exit();
 		//selected_scrap_rules = ['search', 'ads', 'stuff'];
 		selected_scrap_rules = ['search.natural'];
 	}
@@ -645,7 +647,10 @@ function parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scra
 				process.exit(0);
 				break;
 			case '-all':
-				selected_scrap_rules = ['search', 'ads', 'stuff'];
+				//selected_scrap_rules = ['search', 'ads', 'stuff'];
+				selected_scrap_rules.push('search');
+				selected_scrap_rules.push('ads');
+				selected_scrap_rules.push('stuff');
 				break;
 			case '-search':
 			case '-ads':
@@ -769,6 +774,7 @@ function parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scra
 				break;
 		}
 	}
+
 }
 
 
