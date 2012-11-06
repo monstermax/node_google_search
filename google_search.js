@@ -81,7 +81,7 @@ function main() {
 
 	// Reading proxy file
 	if (config.batch.proxy_file) {
-		proxies = readProxiesFile(config.batch.proxy_file);
+		proxies = readProxiesFile(config.batch.proxy_file, config);
 	}
 	if (config.verbose) {
 		console.error('Using ' + proxies.length + ' proxies');
@@ -90,7 +90,7 @@ function main() {
 
 	// Reading batch file
 	if (config.batch.batch_file) {
-		keywords = readKeywordsFile(config.batch.batch_file);
+		keywords = readKeywordsFile(config.batch.batch_file, config);
 	}
 	if (config.verbose) {
 		console.error('Running ' + keywords.length + ' keywords');
@@ -239,6 +239,9 @@ KeywordRun.prototype = {
 
 		if (DEBUG) console.log('KeywordRun.fetch');
 		var page_url = getGoogleWebSearchUrl(this.gg_params, this.keyword);
+
+		//page_url = "http://vipe.re/web/proxy.php?url=" + encodeURIComponent(page_url);
+
 		var options  = getCurlOptionsFromUrl(page_url, this.config, this.proxy);
 
 		var url_md5    = crypto.createHash('md5').update(page_url).digest("hex");
@@ -858,7 +861,7 @@ function FsExistsSync() {
 	return fn.apply(null, arguments);
 }
 
-function readProxiesFile(proxy_file) {
+function readProxiesFile(proxy_file, config) {
 	var proxies = [];
 
 	if (config.verbose) {
@@ -882,7 +885,7 @@ function readProxiesFile(proxy_file) {
 }
 
 
-function readKeywordsFile(batch_file) {
+function readKeywordsFile(batch_file, config) {
 	var keywords = [];
 
 	if (config.verbose) {
