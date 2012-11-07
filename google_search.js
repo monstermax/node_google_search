@@ -42,7 +42,8 @@ function main() {
 			"show_proxy"		: false,
 			"show_url_display"	: false,
 			"show_description"	: false
-		}
+		},
+		proxies: []
 	};
 
 
@@ -59,13 +60,12 @@ function main() {
 
 	/* Init variables */
 	var keywords             = [];
-	var proxies              = [];
 	var selected_scrap_rules = [];
 	
 
 	// Parse command line cmd_args
 	var cmd_args = process.argv.splice(2);
-	parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scrap_rules, selected_scrap_rules);
+	parseArguments(cmd_args, keywords, config, gg_params, all_scrap_rules, selected_scrap_rules);
 
 
 
@@ -81,10 +81,10 @@ function main() {
 
 	// Reading proxy file
 	if (config.batch.proxy_file) {
-		proxies = readProxiesFile(config.batch.proxy_file, config);
+		config.proxies = readProxiesFile(config.batch.proxy_file, config);
 	}
 	if (config.verbose) {
-		console.error('Using ' + proxies.length + ' proxies');
+		console.error('Using ' + config.proxies.length + ' proxies');
 	}
 
 
@@ -104,13 +104,13 @@ function main() {
 
 
 	if (DEBUG) console.log('DEBUG: keywords count => ', keywords.length);
-	if (DEBUG) console.log('DEBUG: proxies count => ', proxies.length);
+	if (DEBUG) console.log('DEBUG: proxies count => ', config.proxies.length);
 	if (DEBUG) console.log('DEBUG: config => ', config);
 	if (DEBUG) console.log('DEBUG: selected_scrap_rules => ', selected_scrap_rules);
 
 
 
-	var batch = new Batch(keywords, proxies, config);
+	var batch = new Batch(keywords, config);
 	batch.setConfig(config);
 	batch.setSearchParams(gg_params);
 	batch.setScrapRules(selected_scrap_rules);
@@ -123,11 +123,11 @@ function main() {
 /* ################################################################### */
 
 
-function Batch(keywords, proxies, config) {
+function Batch(keywords, config) {
 	if (DEBUG) console.log('new Batch');
 	this.keywords             = keywords;
 	this.nb_keywords          = keywords.length;
-	this.proxies              = proxies;
+	this.proxies              = config.proxies;
 	this.config               = config || { curl: {}, batch:{}, display:{} };
 	this.gg_params            = {};
 	this.active_threads       = 0;
@@ -239,8 +239,6 @@ KeywordRun.prototype = {
 
 		if (DEBUG) console.log('KeywordRun.fetch');
 		var page_url = getGoogleWebSearchUrl(this.gg_params, this.keyword);
-
-		//page_url = "http://vipe.re/web/proxy.php?url=" + encodeURIComponent(page_url);
 
 		var options  = getCurlOptionsFromUrl(page_url, this.config, this.proxy);
 
@@ -623,7 +621,7 @@ KeywordRun.prototype = {
 
 
 
-function parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scrap_rules, selected_scrap_rules) {
+function parseArguments(cmd_args, keywords, config, gg_params, all_scrap_rules, selected_scrap_rules) {
 	for (var i=0, l=cmd_args.length; i<l; i++) {
 		var arg0 = cmd_args[i];
 		var arg0_short	= arg0.split('.')[0];
@@ -744,7 +742,8 @@ function parseArguments(cmd_args, keywords, proxies, config, gg_params, all_scra
 				i++;
 				break;
 			case '-proxy':
-				proxies = [arg1];
+				config.proxies = [arg1];
+
 				i++;
 				break;
 			case '-cachedir':
@@ -815,9 +814,19 @@ function getGoogleWebSearchUrl(gg_params, keyword) {
 
 function getCurlOptionsFromUrl(curl_url, config, proxy) {
 
-	var _url       = url.parse(curl_url);
 	var http_auth  = '';	// TODO if needed...
 	var proxy_auth = '';
+
+	if (proxy && proxy.indexOf('http://') === 0) {
+		curl_url = proxy + encodeURIComponent(curl_url);
+		if (config.verbose) {
+			console.error('Using proxy : ' + proxy);
+		}
+		proxy = null;
+	}
+
+	var _url       = url.parse(curl_url);
+
 
 	if (proxy) {
 		var parts           = proxy.split('@');
