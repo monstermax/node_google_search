@@ -286,7 +286,7 @@ KeywordRun.prototype = {
 
 		if (DEBUG) console.log('DEBUG: parsePageContent => ', html.length, ' bytes to parse');
 
-		var jquery_path = 'js_modules/jquery.js';
+		var jquery_path = path.dirname(process.argv[1]) + '/js_modules/jquery.js';
 		if (! FsExistsSync(jquery_path)) {
 			jquery_path = 'http://code.jquery.com/jquery-1.4.2.min.js';
 		}
@@ -365,7 +365,7 @@ KeywordRun.prototype = {
 
 
 		function parseResultItemGoogle(n, item, result_type_name, result_type_placement_name, $) {
-			//console.log('parseResultItemGoogle');
+			//console.log('parseResultItemGoogle', n, result_type_name, result_type_placement_name);
 
 			var $item         = $(item);
 			var item_tag_name = item.tagName;
@@ -501,7 +501,7 @@ KeywordRun.prototype = {
 		}
 
 		function parseResultItemInfosGoogle(result_type_name, result_type_placement_name, $item) {
-			//console.log('parseResultItemInfosGoogle');
+			//console.log('parseResultItemInfosGoogle', result_type_name, result_type_placement_name);
 
 			var univ_search_patterns = {
 				'images'	: '&tbm=isch&',
