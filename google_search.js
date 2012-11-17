@@ -15,7 +15,6 @@ var all_scrap_rules = readScrapSelectors();
 
 /* ################################################################### */
 
-
 function main() {
 
 	/* Config variables */
@@ -287,7 +286,7 @@ KeywordRun.prototype = {
 
 		if (DEBUG) console.log('DEBUG: parsePageContent => ', html.length, ' bytes to parse');
 
-		var jquery_path = 'js_modules/jquery-1.4.2.min.js';
+		var jquery_path = 'js_modules/jquery.js';
 		if (! FsExistsSync(jquery_path)) {
 			jquery_path = 'http://code.jquery.com/jquery-1.4.2.min.js';
 		}
