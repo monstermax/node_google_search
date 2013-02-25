@@ -40,6 +40,7 @@ function main() {
 			"show_keyword"		: false,
 			"show_proxy"		: false,
 			"show_url_display"	: false,
+			"show_gg_url"	    : false,
 			"show_description"	: false
 		},
 		proxies: []
@@ -377,6 +378,7 @@ KeywordRun.prototype = {
 			}
 			
 			//console.log($item.parent().next().find('span.st').html());process.exit();
+			var page_url = getGoogleWebSearchUrl(_keyword_run.gg_params, _keyword_run.keyword);
 
 			// Display result
 			var display_tmp_buffer = [];
@@ -439,6 +441,11 @@ KeywordRun.prototype = {
 				item_buffer.push(item_infos[1]);
 			}
 
+			if (_keyword_run.config.display.show_gg_url) {
+				item_buffer.push(page_url);
+			}
+
+
 			display_tmp_buffer.push(item_buffer.join("\t"));
 
 
@@ -491,6 +498,10 @@ KeywordRun.prototype = {
 					// column "title"
 					if (_keyword_run.config.display.show_title) {
 						item_buffer.push(sitelink_text);
+					}
+
+					if (_keyword_run.config.display.show_gg_url) {
+						item_buffer.push(page_url);
 					}
 
 					display_tmp_buffer.push(item_buffer.join("\t"));
@@ -682,6 +693,7 @@ function parseArguments(cmd_args, keywords, config, gg_params, all_scrap_rules, 
 			case '-showall':
 					config.display.show_proxy = true;
 					config.display.show_url_display = true;
+					config.display.show_gg_url = true;
 					config.display.show_description = true;
 					config.display.show_domain = true;
 					config.display.show_title = true;
@@ -692,6 +704,9 @@ function parseArguments(cmd_args, keywords, config, gg_params, all_scrap_rules, 
 				break;
 			case '-showurl':
 					config.display.show_url_display = true;
+				break;
+			case '-showggurl':
+					config.display.show_gg_url = true;
 				break;
 			case '-showdescription':
 			case '-showdesc':
@@ -1017,6 +1032,7 @@ function usage(rc) {
 		'	-showproxy		: display used proxy					default: not displayed',
 		'	-showdesc		: display description/snippet				default: not displayed',
 		'	-showurl		: display displayed green url				default: not displayed',
+		'	-showggurl		: display search url					default: not displayed',
 		'	-showall		: display all columns',
 		'',
 		'  Google options :',
